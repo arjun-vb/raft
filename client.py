@@ -15,6 +15,12 @@ CLIENT_PEERS = [7001, 7002, 7003]
 #24:7024, 25: 7025, 31:7013, 32:7023, 34:7034, 35:7035, 41:7014, 42:7024, 
 #43:7034, 45:7045, 51:7015, 52:7025, 53:7035, 54:7045}
 
+CURR_LEADER = 1
+
+CURR_TERM = 1
+
+
+
 class ClientConnections(Thread):
 	def __init__(self, client_id, connection):
 		Thread.__init__(self)
@@ -27,6 +33,7 @@ class ClientConnections(Thread):
 				response = self.connection.recv(BUFF_SIZE)
 				data = pickle.loads(response)
 				print("Recieved")
+				#Add to queue
 			#except EOFError:
 				#print("Connection closed with " + str(self.client_id))
 				#for key in C2C_CONNECTIONS:
@@ -66,6 +73,50 @@ def sleep():
 	time.sleep(3)
 
 
+class Server(Thread):
+	def __init__(self, state, timeout):
+		Thread.__init__(self)
+		self.state = state
+		self.timeout = timeout
+		self.start_server()
+
+	def start_server(self):
+		while True:
+
+			#check queue
+			# append entry
+			#	set state to follower
+			#	add entry to log
+			#	send ack
+			#
+			# req vote
+			#	if not voted do the checks
+			#	compare last terms
+			#	vote or deny
+			#
+			# client msg //if im leader
+			#	update log
+			# 	send append entries
+			#
+			# append entry response
+			#	keep track of majority
+			#	chk if prev entry can be commited
+			#	update commit index
+			#
+			# vote response
+			#	track majorty
+			#	convert to leader or follower
+
+			if self.state == "FOLLOWER":
+				print("Listen")
+
+			if self.state == "LEADER":
+				print("Heartbeat")
+
+			if self.state == "CANDIDATE":
+				pritn("Request vote")
+
+
 class Client:
 	def __init__(self, listen_port, pid, port_mapping):
 		self.listen_port = listen_port
@@ -80,8 +131,14 @@ class Client:
 		acceptConn = AcceptConnections(self.ip, self.listen_port)
 		acceptConn.daemon = True
 		acceptConn.start()
+		
 		self.connect_to_peers()
+		
+		serverThread = Server("FOLLOWER", 10)
+		serverThread.start()
+		
 		self.start_console()
+		#start master
 
 	def connect_to_peers(self):
 
