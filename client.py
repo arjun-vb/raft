@@ -4,6 +4,7 @@ import pickle
 import time
 import threading
 from threading import Thread
+from common import *
 
 BUFF_SIZE = 1024
 
@@ -15,11 +16,17 @@ CLIENT_PEERS = [7001, 7002, 7003]
 #24:7024, 25: 7025, 31:7013, 32:7023, 34:7034, 35:7035, 41:7014, 42:7024, 
 #43:7034, 45:7045, 51:7015, 52:7025, 53:7035, 54:7045}
 
-CURR_LEADER = 1
+#CURR_LEADER = 1
 
-CURR_TERM = 1
+#CURR_TERM = 1
 
+#CURR_STATE = "FOLLOWER"
 
+#LAST_RECV_TIME = 0
+
+CLIENT_STATE = None
+
+MessageQueue = []
 
 class ClientConnections(Thread):
 	def __init__(self, client_id, connection):
@@ -32,6 +39,7 @@ class ClientConnections(Thread):
 			try:		
 				response = self.connection.recv(BUFF_SIZE)
 				data = pickle.loads(response)
+				MessageQueue.append(data)
 				print("Recieved")
 				#Add to queue
 			#except EOFError:
@@ -72,19 +80,75 @@ class AcceptConnections(Thread):
 def sleep():
 	time.sleep(3)
 
+class Timer(Thread):
+	def __init__(self, timeout):
+		Thread.__init__(self)
+		self.timeout = timeout
+
+	def run(self):
+		while True:
+			if time.time() - CLIENT_STATE.last_recv_time > self.timeout && CLIENT_STATE.curr_state != "LEADER":
+				CLIENT_STATE.last_recv_time = time.time()
+				self.start_election()
+				
+	def start_election(self):
+		CLIENT_STATE.curr_state = "CANDIDATE"
+		CLIENT_STATE.curr_term += 1
+		CLIENT_STATE.votedFor = CLIENT_STATE.pid
+		request_vote = RequestVote( "REQ_VOTE", CLIENT_STATE.pid, CLIENT_STATE.curr_term, CLIENT_STATE.logs[-1].index, CLIENT_STATE.logs[-1].term)
+		
+		for client in CLIENT_STATE.port_mapping:
+			if CLIENT_STATE.activeLink[client] == True:
+				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[client]].send(pickle.dumps(request_vote))
+
+
+class Candidate:
+	def __init__(self):
+		print("Init")
+
+	def 
+
+
 
 class Server(Thread):
-	def __init__(self, state, timeout):
+	def __init__(self, state):
 		Thread.__init__(self)
 		self.state = state
-		self.timeout = timeout
-		self.start_server()
 
-	def start_server(self):
+	def run(self):
 		while True:
+			if len(MessageQueue) != 0:
+				data = MessageQueue.pop(0)
+				if CLIENT_STATE.curr_state == "LEADER":
+					print("")
+				elif CLIENT_STATE.curr_state == "FOLLOWER":
+					if data.req_type == "REQ_VOTE":
+						self.handleReqVoteFollower(data)
+				elif CLIENT_STATE.curr_state == "CANDIDATE":
+					print("")
 
+	def handleReqVoteFollower(self, data):
+		if data.term < CLIENT_STATE.curr_term:
+			response = ResponseVote("RESP_VOTE", data.term, False)
+			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(pickle.dumps(response))
+		elif data.term > CLIENT_STATE.curr_term:
+			CLIENT_STATE.curr_term = data.term
+			CLIENT_STATE.votedFor = data.candidateId
+			response = ResponseVote("RESP_VOTE", data.term, True)
+			CLIENT_STATE.last_recv_time = time.time()
+			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(pickle.dumps(response))
+		else:
+			if CLIENT_STATE.votedFor!=None or CLIENT_STATE.votedFor!=data.candidateId:
+				response = ResponseVote("RESP_VOTE", data.term, False)
+				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(pickle.dumps(response))
+			else:
+				if CLIENT_STATE.logs[-1].term<=data.lastLogTerm and CLIENT_STATE.logs[-1].index <= data.lastLogIndex:
+					CLIENT_STATE.votedFor = data.candidateId
+					response = ResponseVote("RESP_VOTE", data.term, True)
+					CLIENT_STATE.last_recv_time = time.time()
 			#check queue
 			# append entry
+			#	term has to be greater or equal
 			#	set state to follower
 			#	add entry to log
 			#	send ack
@@ -107,14 +171,14 @@ class Server(Thread):
 			#	track majorty
 			#	convert to leader or follower
 
-			if self.state == "FOLLOWER":
-				print("Listen")
+			# if self.state == "FOLLOWER":
+			# 	print("Listen")
 
-			if self.state == "LEADER":
-				print("Heartbeat")
+			# if self.state == "LEADER":
+			# 	print("Heartbeat")
 
-			if self.state == "CANDIDATE":
-				pritn("Request vote")
+			# if self.state == "CANDIDATE":
+			# 	pritn("Request vote")
 
 
 class Client:
@@ -216,5 +280,7 @@ if __name__ == "__main__":
 		listen_port = 7005
 		pid = 5
 		port_mapping = { 1:7015, 2:7025, 3:7035, 4:7045}
+
+	CLIENT_STATE = ClientState(pid, port_mapping)
 
 	Client(listen_port, pid, port_mapping)
