@@ -10,8 +10,6 @@ BUFF_SIZE = 1024
 
 C2C_CONNECTIONS = {}
 
-CLIENT_PEERS = [7001, 7002]
-
 #port_mapping = { 12:7012, 13: 7013, 14: 7014, 15:7015, 21:7012, 23:7023, 
 #24:7024, 25: 7025, 31:7013, 32:7023, 34:7034, 35:7035, 41:7014, 42:7024, 
 #43:7034, 45:7045, 51:7015, 52:7025, 53:7035, 54:7045}
@@ -21,64 +19,8 @@ CLIENT_STATE = None
 
 MessageQueue = []
 
-class ClientConnections(Thread):
-	def __init__(self, client_id, connection):
-		Thread.__init__(self)
-		self.client_id = client_id
-		self.connection = connection
-
-	def run(self):		
-		while True:	
-			try:		
-				response = self.connection.recv(BUFF_SIZE)
-				data = pickle.loads(response)
-				MessageQueue.append(data)
-				print("Recieved")
-			#except EOFError:
-				#print("Connection closed with " + str(self.client_id))
-				#for key in C2C_CONNECTIONS:
-				#	print(str(key))
-				#if self.client_id in C2C_CONNECTIONS:
-				#	C2C_CONNECTIONS[self.client_id].close()
-				#	del C2C_CONNECTIONS[self.client_id]
-			except:
-				a = 1
-
-
 def sleep():
 	time.sleep(3)
-
-class Timer(Thread):
-	def __init__(self, timeout):
-		Thread.__init__(self)
-		self.timeout = timeout
-
-	def run(self):
-		while True:
-			if time.time() - CLIENT_STATE.last_recv_time > self.timeout and CLIENT_STATE.curr_state != "LEADER":
-				CLIENT_STATE.last_recv_time = time.time()
-				print("Starting Leader Election....")
-				self.start_election()
-				
-	def start_election(self):
-		CLIENT_STATE.curr_state = "CANDIDATE"
-		CLIENT_STATE.curr_term += 1
-		CLIENT_STATE.votedFor = CLIENT_STATE.pid
-		request_vote = RequestVote( "REQ_VOTE", CLIENT_STATE.pid, CLIENT_STATE.curr_term, CLIENT_STATE.logs[-1].index, CLIENT_STATE.logs[-1].term)
-		
-		for client in CLIENT_STATE.port_mapping:
-			if CLIENT_STATE.activeLink[client] == True:
-				print("Request Vote for " + str(CLIENT_STATE.pid) + "|" + str(CLIENT_STATE.curr_term) + " sent to " + str(client))
-				print(str(CLIENT_STATE.port_mapping[client]))
-				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[client]].send(pickle.dumps(request_vote))
-
-
-# class Candidate:
-# 	def __init__(self):
-# 		print("Init")
-
-# 	def 
-
 
 
 class Server(Thread):
@@ -90,34 +32,78 @@ class Server(Thread):
 			if len(MessageQueue) != 0:
 				data = MessageQueue.pop(0)
 				if CLIENT_STATE.curr_state == "LEADER":
-					print("")
+					if data.req_type == "REQ_VOTE":
+						print("req vote")
+					elif data.req_type == "APPEND_ENTRY":
+						print("append entry")
+					elif data.req_type == "RESP_APPEND_ENTRY":
+						print("resp append entry")
+
 				elif CLIENT_STATE.curr_state == "FOLLOWER":
 					if data.req_type == "REQ_VOTE":
-						self.handleReqVoteFollower(data)
-				elif CLIENT_STATE.curr_state == "CANDIDATE":
-					print("")
+						self.handleReqVote_Follower(data)
+					elif data.req_type == "APPEND_ENTRY":
+						self.handleAppendEntry_Follower(data)
 
-	def handleReqVoteFollower(self, data):
+				elif CLIENT_STATE.curr_state == "CANDIDATE":
+					if data.req_type == "REQ_VOTE":
+						print("req vote")
+					elif data.req_type == "RESP_VOTE":
+						print("resp vote")
+					elif data.req_type == "APPEND_ENTRY":
+						print("append entry")
+
+	def handleReqVote_Follower(self, data):
+
+		deny = pickle.dumps(ResponseVote("RESP_VOTE", data.term, False))
+		accept = pickle.dumps(ResponseVote("RESP_VOTE", data.term, True))
+		vote = False
+
 		if data.term < CLIENT_STATE.curr_term:
-			response = ResponseVote("RESP_VOTE", data.term, False)
-			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(pickle.dumps(response))
+			vote = False
+
 		elif data.term > CLIENT_STATE.curr_term:
+			vote = True
+	
+		else:
+			if CLIENT_STATE.votedFor == 0 or CLIENT_STATE.votedFor == data.candidateId: 
+				if CLIENT_STATE.logs[-1].term < data.lastLogTerm:
+					vote = True
+				elif CLIENT_STATE.logs[-1].term == data.lastLogTerm and CLIENT_STATE.logs[-1].index <= data.lastLogIndex:
+					vote = True
+				else:
+					vote = False			
+			else:
+				vote = False
+
+		if vote == True:
 			CLIENT_STATE.curr_term = data.term
 			CLIENT_STATE.votedFor = data.candidateId
-			response = ResponseVote("RESP_VOTE", data.term, True)
 			CLIENT_STATE.last_recv_time = time.time()
 			print("Accepted leader " + str(data.candidateId) + " for term " + str(data.term))
-			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(pickle.dumps(response))
+			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(accept)
 		else:
-			if CLIENT_STATE.votedFor!=None or CLIENT_STATE.votedFor!=data.candidateId:
-				response = ResponseVote("RESP_VOTE", data.term, False)
-				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(pickle.dumps(response))
+			print("Rejected leader " + str(data.candidateId) + " for term " + str(data.term))
+			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(deny)
+
+	def handleAppendEntry_Follower(self, data):
+
+		if data.term < CLIENT_STATE.curr_term:
+			response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.curr_term, False))
+			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
+		else:
+			if data.term > CLIENT_STATE.curr_term:
+				CLIENT_STATE.curr_term = data.term
+				CLIENT_STATE.votedFor = 0
+			CLIENT_STATE.last_recv_time = time.time()
+			if CLIENT_STATE.logs[data.prevLogIndex] != None and CLIENT_STATE.logs[data.prevLogIndex].term == data.prevLogTerm:
+				CLIENT_STATE.logs.append(data.entries) # to do
+				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", data.term, True))
+				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 			else:
-				if CLIENT_STATE.logs[-1].term<=data.lastLogTerm and CLIENT_STATE.logs[-1].index <= data.lastLogIndex:
-					CLIENT_STATE.votedFor = data.candidateId
-					response = ResponseVote("RESP_VOTE", data.term, True)
-					CLIENT_STATE.last_recv_time = time.time()
-					C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(pickle.dumps(response))
+				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", data.term, False))
+				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
+
 			#check queue
 			# append entry
 			#	term has to be greater or equal
@@ -143,15 +129,49 @@ class Server(Thread):
 			#	track majorty
 			#	convert to leader or follower
 
-			# if self.state == "FOLLOWER":
-			# 	print("Listen")
 
-			# if self.state == "LEADER":
-			# 	print("Heartbeat")
+class Timer(Thread):
+	def __init__(self, timeout):
+		Thread.__init__(self)
+		self.timeout = timeout
 
-			# if self.state == "CANDIDATE":
-			# 	pritn("Request vote")
+	def run(self):
+		while True:
+			if time.time() - CLIENT_STATE.last_recv_time > self.timeout and CLIENT_STATE.curr_state != "LEADER":
+				CLIENT_STATE.last_recv_time = time.time()
+				print("Starting Leader Election....")
+				self.start_election()
+				
+	def start_election(self):
+		CLIENT_STATE.curr_state = "CANDIDATE"
+		CLIENT_STATE.curr_term += 1
+		CLIENT_STATE.votedFor = CLIENT_STATE.pid
+		request_vote = RequestVote( "REQ_VOTE", CLIENT_STATE.pid, CLIENT_STATE.curr_term, CLIENT_STATE.logs[-1].index, CLIENT_STATE.logs[-1].term)
+		
+		for client in CLIENT_STATE.port_mapping:
+			if CLIENT_STATE.activeLink[client] == True:
+				print("Request Vote for " + str(CLIENT_STATE.pid) + "|" + str(CLIENT_STATE.curr_term) + " sent to " + str(client))
+				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[client]].send(pickle.dumps(request_vote))
 
+
+class ClientConnections(Thread):
+	def __init__(self, client_id, connection):
+		Thread.__init__(self)
+		self.client_id = client_id
+		self.connection = connection
+
+	def run(self):		
+		while True:	
+			try:		
+				response = self.connection.recv(BUFF_SIZE)
+				data = pickle.loads(response)
+				print("Recieved from " + str(self.client_id))
+				MessageQueue.append(data)
+			except:
+				print("Error: Closing connection with " + str(self.client_id))
+				CLIENT_STATE.activeLink[self.client_id] = False
+				self.connection.close()
+				break
 
 class AcceptConnections(Thread):
 	def __init__(self, ip, listen_port):
@@ -177,7 +197,7 @@ class AcceptConnections(Thread):
 			two = two % 10
 			client = one + two - CLIENT_STATE.pid
 			CLIENT_STATE.activeLink[client] = True
-			new_client = ClientConnections(client_address[1], connection)
+			new_client = ClientConnections(client, connection)
 			new_client.daemon = True
 			new_client.start()
 
@@ -190,7 +210,6 @@ class Client:
 		self.start_client()
 
 	def start_client(self):
-		#ip = '127.0.0.1'
 		
 		acceptConn = AcceptConnections(self.ip, self.listen_port)
 		acceptConn.daemon = True
@@ -202,25 +221,8 @@ class Client:
 		serverThread.start()
 		
 		self.start_console()
-		#start master
 
 	def connect_to_peers(self):
-
-		'''for client_id in CLIENT_PEERS:
-			if client_id != self.listen_port:
-				client2client = socket.socket()
-				client2client.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-				#client2client.bind((ip, 7032))
-				
-				try:
-					client2client.connect((self.ip, client_id))
-					print('Connected to: ' + self.ip + ':' + str(client_id))
-					C2C_CONNECTIONS[client_id] = client2client
-					new_connection = ClientConnections(client2client)
-					new_connection.daemon = True
-					new_connection.start()
-				except:
-					a = 1'''
 
 		for client_id in self.port_mapping:
 			port = self.port_mapping[client_id]
@@ -235,7 +237,7 @@ class Client:
 				print('Connected to: ' + self.ip + ':' + str(port))
 				C2C_CONNECTIONS[port] = client2client
 				CLIENT_STATE.activeLink[client_id] = True
-				new_connection = ClientConnections(client2client)
+				new_connection = ClientConnections(client_id, client2client)
 				new_connection.daemon = True
 				new_connection.start()
 			except:
@@ -265,17 +267,17 @@ if __name__ == "__main__":
 		listen_port = 7001
 		pid = 1
 		port_mapping = { 2:7012, 3:7013, 4:7014, 5:7015}
-		timer = Timer(7)
+		timer = Timer(5)
 	elif sys.argv[1] == "p2":
 		listen_port = 7002
 		pid = 2
 		port_mapping = { 1:7012, 3:7023, 4:7024, 5:7025}
-		timer = Timer(15)
+		timer = Timer(10)
 	elif sys.argv[1] == "p3":
 		listen_port = 7003
 		pid = 3
 		port_mapping = { 1:7013, 2:7023, 4:7034, 5:7035}
-		timer = Timer(7)
+		timer = Timer(15)
 	elif sys.argv[1] == "p4":
 		listen_port = 7004
 		pid = 4

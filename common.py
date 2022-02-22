@@ -6,12 +6,6 @@ class LogEntry:
 		self.index = index
 		self.message = message
 
-class Persistent:
-	def __init__(self):
-		self.currentTerm = 0
-		self.votedFor = 0
-		self.logs = []
-
 class RequestVote:
 	def __init__(self, req_type, candidateId, term, lastLogIndex, lastLogTerm):
 		self.candidateId = candidateId
@@ -36,7 +30,7 @@ class AppendEntry:
 		self.entries = entries
 		self.commitIndex = commitIndex
 
-class AppendEntryResponse:
+class ResponseAppendEntry:
 	def __init__(self, req_type, term, success):
 		self.term = term
 		self.req_type =req_type
@@ -52,4 +46,5 @@ class ClientState:
 		self.last_recv_time = time.time()		
 		self.votedFor = 0
 		self.logs = [LogEntry(0,0,"msg")]
+		self.commitIndex = 0
 		self.activeLink = {1: False, 2: False, 3: False, 4: False, 5: False}
