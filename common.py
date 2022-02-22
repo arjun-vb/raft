@@ -48,3 +48,4 @@ class ClientState:
 		self.logs = [LogEntry(0,0,"msg")]
 		self.commitIndex = 0
 		self.activeLink = {1: False, 2: False, 3: False, 4: False, 5: False}
+		self.voteCounts = {}

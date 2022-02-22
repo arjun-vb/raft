@@ -19,6 +19,8 @@ CLIENT_STATE = None
 
 MessageQueue = []
 
+
+
 def sleep():
 	time.sleep(3)
 
@@ -33,7 +35,8 @@ class Server(Thread):
 				data = MessageQueue.pop(0)
 				if CLIENT_STATE.curr_state == "LEADER":
 					if data.req_type == "REQ_VOTE":
-						print("req vote")
+						print("Request vote leader")
+						self.handleReqVote_Leader(data)
 					elif data.req_type == "APPEND_ENTRY":
 						print("append entry")
 					elif data.req_type == "RESP_APPEND_ENTRY":
@@ -47,16 +50,33 @@ class Server(Thread):
 
 				elif CLIENT_STATE.curr_state == "CANDIDATE":
 					if data.req_type == "REQ_VOTE":
-						print("req vote")
+						print("req vote candidate")
+						self.handleReqVote_Follower(data)
 					elif data.req_type == "RESP_VOTE":
 						print("resp vote")
+						self.handleRespVote_Candidate(data)
 					elif data.req_type == "APPEND_ENTRY":
 						print("append entry")
+	
+	def handleReqVote_Leader(self, data):
+
+		if data.term <= CLIENT_STATE.curr_term:
+			deny = pickle.dumps(ResponseVote("RESP_VOTE", CLIENT_STATE.curr_term, False))
+			print("Rejected leader " + str(data.candidateId) + " for term " + str(data.term))
+			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(deny)
+		else:
+			CLIENT_STATE.curr_state = "FOLLOWER"
+			CLIENT_STATE.curr_term = data.term
+			CLIENT_STATE.votedFor = data.candidateId
+			CLIENT_STATE.last_recv_time = time.time()
+
+			accept = pickle.dumps(ResponseVote("RESP_VOTE", CLIENT_STATE.curr_term, True))
+			print("Accepted leader " + str(data.candidateId) + " for term " + str(data.term))
+			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(accept)
+
 
 	def handleReqVote_Follower(self, data):
-
-		deny = pickle.dumps(ResponseVote("RESP_VOTE", data.term, False))
-		accept = pickle.dumps(ResponseVote("RESP_VOTE", data.term, True))
+		
 		vote = False
 
 		if data.term < CLIENT_STATE.curr_term:
@@ -77,16 +97,35 @@ class Server(Thread):
 				vote = False
 
 		if vote == True:
+			CLIENT_STATE.curr_state = "FOLLOWER"
 			CLIENT_STATE.curr_term = data.term
 			CLIENT_STATE.votedFor = data.candidateId
 			CLIENT_STATE.last_recv_time = time.time()
+			accept = pickle.dumps(ResponseVote("RESP_VOTE", CLIENT_STATE.curr_term, True))
 			print("Accepted leader " + str(data.candidateId) + " for term " + str(data.term))
 			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(accept)
 		else:
+			deny = pickle.dumps(ResponseVote("RESP_VOTE", CLIENT_STATE.curr_term, False))
 			print("Rejected leader " + str(data.candidateId) + " for term " + str(data.term))
 			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(deny)
 
-	def handleAppendEntry_Follower(self, data):
+	def handleRespVote_Candidate(self, data):
+		if data.term > CLIENT_STATE.curr_term:
+			CLIENT_STATE.curr_state = "FOLLOWER"
+			CLIENT_STATE.curr_term = data.term
+			CLIENT_STATE.votedFor = 0 
+			CLIENT_STATE.last_recv_time = time.time()
+		else:
+			if data.voteGranted == True:
+				key = str(CLIENT_STATE.pid) + "|" + str(data.term)
+				CLIENT_STATE.voteCounts[key] += 1
+				if CLIENT_STATE.voteCounts[key] >= 3:
+					CLIENT_STATE.curr_state = "LEADER"
+					#append entries heartbeat
+
+	
+
+	'''def handleAppendEntry_Follower(self, data):
 
 		if data.term < CLIENT_STATE.curr_term:
 			response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.curr_term, False))
@@ -102,7 +141,7 @@ class Server(Thread):
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 			else:
 				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", data.term, False))
-				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
+				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)'''
 
 			#check queue
 			# append entry
@@ -147,6 +186,7 @@ class Timer(Thread):
 		CLIENT_STATE.curr_term += 1
 		CLIENT_STATE.votedFor = CLIENT_STATE.pid
 		request_vote = RequestVote( "REQ_VOTE", CLIENT_STATE.pid, CLIENT_STATE.curr_term, CLIENT_STATE.logs[-1].index, CLIENT_STATE.logs[-1].term)
+		CLIENT_STATE.voteCounts[str(CLIENT_STATE.pid) + "|" + str(CLIENT_STATE.curr_term)] = 1
 		
 		for client in CLIENT_STATE.port_mapping:
 			if CLIENT_STATE.activeLink[client] == True:
@@ -218,6 +258,7 @@ class Client:
 		self.connect_to_peers()
 		
 		serverThread = Server()
+		serverThread.daemon = True
 		serverThread.start()
 		
 		self.start_console()
@@ -251,6 +292,7 @@ class Client:
 				for key in C2C_CONNECTIONS:
 					print(str(key))
 					#C2C_CONNECTIONS[key].shutdown(0)
+					#CLIENT_STATE.activeLink[self.port_mapping[key]] = False
 					C2C_CONNECTIONS[key].close()
 				sys.exit()
 			if user_input == "C":
@@ -291,6 +333,7 @@ if __name__ == "__main__":
 		
 
 	CLIENT_STATE = ClientState(pid, port_mapping)
+	timer.daemon = True
 	timer.start()
 
 	Client(listen_port, pid, port_mapping)
