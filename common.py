@@ -1,3 +1,5 @@
+import time
+
 class LogEntry:
 	def __init__(self, term, index, message):
 		self.term = term
@@ -44,10 +46,10 @@ class ClientState:
 	def __init__(self, pid, port_mapping):
 		self.pid = pid
 		self.port_mapping = port_mapping
-		self.curr_leader = 1
-		self.curr_term = 1
+		self.curr_leader = 0
+		self.curr_term = 0
 		self.curr_state = "FOLLOWER"
-		self.last_recv_time = 0		
+		self.last_recv_time = time.time()		
 		self.votedFor = 0
-		self.logs = []
-		self.activeLink = {1: True, 2: True, 3: True, 4: True, 5: True}
+		self.logs = [LogEntry(0,0,"msg")]
+		self.activeLink = {1: False, 2: False, 3: False, 4: False, 5: False}
