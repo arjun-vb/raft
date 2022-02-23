@@ -31,8 +31,9 @@ class AppendEntry:
 		self.commitIndex = commitIndex
 
 class ResponseAppendEntry:
-	def __init__(self, req_type, term, success):
+	def __init__(self, req_type, pid, term, success):
 		self.term = term
+		self.pid = pid
 		self.req_type =req_type
 		self.success = success
 
@@ -49,3 +50,6 @@ class ClientState:
 		self.commitIndex = 0
 		self.activeLink = {1: False, 2: False, 3: False, 4: False, 5: False}
 		self.voteCounts = {}
+		self.leaderHeartbeat = time.time()
+		self.nextIndex = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+		self.logEntryCounts = {}

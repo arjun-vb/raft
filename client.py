@@ -38,9 +38,11 @@ class Server(Thread):
 						print("Request vote leader")
 						self.handleReqVote_Leader(data)
 					elif data.req_type == "APPEND_ENTRY":
+						self.handleAppendEntry_Leader(data)
 						print("append entry")
 					elif data.req_type == "RESP_APPEND_ENTRY":
 						print("resp append entry")
+						self.handleRespAppendEntry_Leader(data)
 
 				elif CLIENT_STATE.curr_state == "FOLLOWER":
 					if data.req_type == "REQ_VOTE":
@@ -57,6 +59,7 @@ class Server(Thread):
 						self.handleRespVote_Candidate(data)
 					elif data.req_type == "APPEND_ENTRY":
 						print("append entry")
+						self.handleAppendEntry_Follower(data)
 	
 	def handleReqVote_Leader(self, data):
 
@@ -121,27 +124,67 @@ class Server(Thread):
 				CLIENT_STATE.voteCounts[key] += 1
 				if CLIENT_STATE.voteCounts[key] >= 3:
 					CLIENT_STATE.curr_state = "LEADER"
-					#append entries heartbeat
+					for key in CLIENT_STATE.nextIndex:
+						CLIENT_STATE.nextIndex[key] = CLIENT_STATE.logs[-1].index + 1
+					CLIENT_STATE.leaderHeartbeat = time.time()
+					heartBeatThread = HeartBeat()
+					heartBeatThread.start()
 
 	
+	def handleAppendEntry_Follower(self, data):
 
-	'''def handleAppendEntry_Follower(self, data):
+		CLIENT_STATE.last_recv_time = time.time()
 
 		if data.term < CLIENT_STATE.curr_term:
-			response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.curr_term, False))
+			response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, CLIENT_STATE.curr_term, False))
 			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 		else:
+			CLIENT_STATE.curr_state = "FOLLOWER"
 			if data.term > CLIENT_STATE.curr_term:
 				CLIENT_STATE.curr_term = data.term
 				CLIENT_STATE.votedFor = 0
-			CLIENT_STATE.last_recv_time = time.time()
-			if CLIENT_STATE.logs[data.prevLogIndex] != None and CLIENT_STATE.logs[data.prevLogIndex].term == data.prevLogTerm:
-				CLIENT_STATE.logs.append(data.entries) # to do
-				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", data.term, True))
+			if data.prevLogIndex < len(CLIENT_STATE.logs) and CLIENT_STATE.logs[data.prevLogIndex].term == data.prevLogTerm:
+				if len(data.entries) > 0
+					CLIENT_STATE.logs.append(data.entries)
+				CLIENT_STATE.commitIndex = data.commitIndex
+				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, CLIENT_STATE.curr_term,, True))
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 			else:
-				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", data.term, False))
-				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)'''
+				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, CLIENT_STATE.curr_term, False))
+				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
+
+	def handleAppendEntry_Leader(self, data):
+
+		if data.term <= CLIENT_STATE.curr_term:
+			response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, CLIENT_STATE.curr_term, False))
+			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
+		else:
+			CLIENT_STATE.curr_state = "FOLLOWER"
+			CLIENT_STATE.curr_term = data.term
+			CLIENT_STATE.votedFor = 0
+			if data.prevLogIndex < len(CLIENT_STATE.logs) and CLIENT_STATE.logs[data.prevLogIndex].term == data.prevLogTerm:
+				if len(data.entries) > 0
+					CLIENT_STATE.logs.append(data.entries)
+				CLIENT_STATE.commitIndex = data.commitIndex
+				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, CLIENT_STATE.curr_term,, True))
+				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
+			else:
+				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, CLIENT_STATE.curr_term, False))
+				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
+
+	def handleRespAppendEntry_Leader(self, data):
+		if data.success == True and len(data.entries) > 0:
+			CLIENT_STATE.nextIndex[data.pid] += 1
+			CLIENT_STATE.logEntryCounts[data.entries[0]] += 1
+			# check for commiting
+		else:
+			if data.term > CLIENT_STATE.curr_term:
+				CLIENT_STATE.curr_state = "FOLLOWER"
+				CLIENT_STATE.curr_term = data.term
+				CLIENT_STATE.votedFor = 0
+			else:
+				CLIENT_STATE.nextIndex[data.pid] -= 1
+				#try append entry again
 
 			#check queue
 			# append entry
@@ -167,6 +210,26 @@ class Server(Thread):
 			# vote response
 			#	track majorty
 			#	convert to leader or follower
+
+class HeartBeat(Thread):
+	def __init__(self):
+		Thread.__init__(self, timeout = 3)
+		self.timeout = timeout
+
+	def run(self):
+		entry = []
+		appendEntry = AppendEntry("APPEND_ENTRY", CLIENT_STATE.curr_term, CLIENT_STATE.pid, \
+								CLIENT_STATE.logs[-1].index, CLIENT_STATE.logs[-1].term, entry, CLIENT_STATE.commitIndex)
+		while CLIENT_STATE.curr_state == "LEADER":
+			if time.time() - CLIENT_STATE.leaderHeartbeat > self.timeout
+				CLIENT_STATE.leaderHeartbeat = time.time() 
+				appendEntry.prevLogIndex = CLIENT_STATE.logs[-1].index
+				appendEntry.prevLogTerm = CLIENT_STATE.logs[-1].term
+				appendEntry.commitIndex = CLIENT_STATE.commitIndex
+				for client in CLIENT_STATE.port_mapping:
+					if CLIENT_STATE.activeLink[client] == True:
+						print("HeartBeat for " + str(CLIENT_STATE.pid) + "|" + str(CLIENT_STATE.curr_term) + " sent to " + str(client))
+						C2C_CONNECTIONS[CLIENT_STATE.port_mapping[client]].send(pickle.dumps(appendEntry))
 
 
 class Timer(Thread):
