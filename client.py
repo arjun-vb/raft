@@ -6,18 +6,12 @@ import threading
 from threading import Thread
 from common import *
 
+
 BUFF_SIZE = 1024
-
 C2C_CONNECTIONS = {}
-
-#port_mapping = { 12:7012, 13: 7013, 14: 7014, 15:7015, 21:7012, 23:7023, 
-#24:7024, 25: 7025, 31:7013, 32:7023, 34:7034, 35:7035, 41:7014, 42:7024, 
-#43:7034, 45:7045, 51:7015, 52:7025, 53:7035, 54:7045}
-
-
 CLIENT_STATE = None
-
 MessageQueue = []
+
 
 
 def sleep():
@@ -38,15 +32,20 @@ class Server(Thread):
 						self.handleReqVote_Leader(data)
 					elif data.req_type == "APPEND_ENTRY":
 						self.handleAppendEntry_Leader(data)
-						print("append entry")
+						print("append entry leader")
 					elif data.req_type == "RESP_APPEND_ENTRY":
-						print("resp append entry")
+						print("resp append entry leader")
 						self.handleRespAppendEntry_Leader(data)
+					elif data.req_type == "CLIENT_REQ":
+						print("Client req leader")
+						self.handleClientReq_Leader(data)
 
 				elif CLIENT_STATE.curr_state == "FOLLOWER":
 					if data.req_type == "REQ_VOTE":
+						print("req vote follower")
 						self.handleReqVote_Follower(data)
 					elif data.req_type == "APPEND_ENTRY":
+						print("append entry follower")
 						self.handleAppendEntry_Follower(data)
 
 				elif CLIENT_STATE.curr_state == "CANDIDATE":
@@ -54,12 +53,31 @@ class Server(Thread):
 						print("req vote candidate")
 						self.handleReqVote_Follower(data)
 					elif data.req_type == "RESP_VOTE":
-						print("resp vote")
+						print("resp vote candidate")
 						self.handleRespVote_Candidate(data)
 					elif data.req_type == "APPEND_ENTRY":
-						print("append entry")
+						print("append entry candidate")
 						self.handleAppendEntry_Follower(data)
 	
+	def handleClientReq_Leader(self, data):
+
+		entries = []
+		newEntry = LogEntry(CLIENT_STATE.curr_term, len(CLIENT_STATE.logs), data.message)
+		entries.append(newEntry)
+		CLIENT_STATE.logEntryCounts[newEntry.index] = set()
+		CLIENT_STATE.logEntryCounts[newEntry.index].add(CLIENT_STATE.pid)
+		
+		appendEntry = AppendEntry("APPEND_ENTRY", CLIENT_STATE.curr_term, CLIENT_STATE.pid, \
+								CLIENT_STATE.logs[-1].index, CLIENT_STATE.logs[-1].term, \
+								entries, CLIENT_STATE.commitIndex)
+		CLIENT_STATE.logs.append(newEntry)
+
+		for client in CLIENT_STATE.port_mapping:
+			if CLIENT_STATE.activeLink[client] == True:
+				print("New log entry for index|term " + str(newEntry.index) + "|" + str(CLIENT_STATE.curr_term) + " sent to " + str(client))
+				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[client]].send(pickle.dumps(appendEntry))
+
+
 	def handleReqVote_Leader(self, data):
 
 		if data.term <= CLIENT_STATE.curr_term:
@@ -111,6 +129,7 @@ class Server(Thread):
 			print("Rejected leader " + str(data.candidateId) + " for term " + str(data.term))
 			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(deny)
 
+
 	def handleRespVote_Candidate(self, data):
 		if data.term > CLIENT_STATE.curr_term:
 			CLIENT_STATE.curr_state = "FOLLOWER"
@@ -125,6 +144,12 @@ class Server(Thread):
 					CLIENT_STATE.curr_state = "LEADER"
 					for key in CLIENT_STATE.nextIndex:
 						CLIENT_STATE.nextIndex[key] = CLIENT_STATE.logs[-1].index + 1
+
+					index = CLIENT_STATE.commitIndex + 1
+					while index <= CLIENT_STATE.logs[-1].index:
+						CLIENT_STATE.logEntryCounts[index] = set()
+						CLIENT_STATE.logEntryCounts[index].add(CLIENT_STATE.pid)
+						index += 1
 					#CLIENT_STATE.leaderHeartbeat = time.time()
 					heartBeatThread = HeartBeat()
 					heartBeatThread.start()
@@ -145,7 +170,8 @@ class Server(Thread):
 				CLIENT_STATE.votedFor = 0
 			if data.prevLogIndex < len(CLIENT_STATE.logs) and CLIENT_STATE.logs[data.prevLogIndex].term == data.prevLogTerm:
 				if len(data.entries) > 0:
-					CLIENT_STATE.logs.append(data.entries)
+					for entry in data.entries:
+						CLIENT_STATE.logs.append(entry)
 				CLIENT_STATE.commitIndex = data.commitIndex
 				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 					CLIENT_STATE.curr_term, True))
@@ -155,6 +181,7 @@ class Server(Thread):
 				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 					CLIENT_STATE.curr_term, False))
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
+
 
 	def handleAppendEntry_Leader(self, data):
 
@@ -168,7 +195,8 @@ class Server(Thread):
 			CLIENT_STATE.votedFor = 0
 			if data.prevLogIndex < len(CLIENT_STATE.logs) and CLIENT_STATE.logs[data.prevLogIndex].term == data.prevLogTerm:
 				if len(data.entries) > 0:
-					CLIENT_STATE.logs.append(data.entries)
+					for entry in data.entries:
+						CLIENT_STATE.logs.append(entry)
 				CLIENT_STATE.commitIndex = data.commitIndex
 				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 					CLIENT_STATE.curr_term, True))
@@ -179,13 +207,20 @@ class Server(Thread):
 					CLIENT_STATE.curr_term, False))
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 
+
 	def handleRespAppendEntry_Leader(self, data):
 		if data.success == True:  
 			CLIENT_STATE.nextIndex[data.pid] = CLIENT_STATE.logs[-1].index + 1
-			#CLIENT_STATE.logEntryCounts[data.entries[-1]] += 1 # 
-			#check for commiting
-			# commit index = min of next index of others if last term is leaders term
-			#
+			index = CLIENT_STATE.commitIndex + 1
+			while index <= CLIENT_STATE.logs[-1].index:
+				CLIENT_STATE.logEntryCounts[index].add(data.pid)
+				if len(CLIENT_STATE.logEntryCounts[index]) >= 3:
+					if CLIENT_STATE.logs[index].term == CLIENT_STATE.curr_term:
+						CLIENT_STATE.commitIndex = index
+					#elif: check leaders term is present in majority - may not be needed I think code automatically takes care
+				else: 
+					break
+				index += 1
 		else:
 			if data.term > CLIENT_STATE.curr_term:
 				CLIENT_STATE.curr_state = "FOLLOWER"
@@ -201,19 +236,8 @@ class Server(Thread):
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.pid]].send(pickle.dumps(appendEntry))
 
 
-			#check queue
-			#
-			# client msg //if im leader
-			#	update log
-			# 	send append entries
-			#
-			# append entry response
-			#	keep track of majority
-			#	chk if prev entry can be commited
-			#	update commit index
-
 class HeartBeat(Thread):
-	def __init__(self, timeout = 3):
+	def __init__(self, timeout = 15):
 		Thread.__init__(self)
 		self.timeout = timeout
 
@@ -245,6 +269,7 @@ class Timer(Thread):
 				print("Starting Leader Election....")
 				self.start_election()
 				
+
 	def start_election(self):
 		CLIENT_STATE.curr_state = "CANDIDATE"
 		CLIENT_STATE.curr_term += 1
@@ -279,6 +304,7 @@ class ClientConnections(Thread):
 				self.connection.close()
 				break
 
+
 class AcceptConnections(Thread):
 	def __init__(self, ip, listen_port):
 		Thread.__init__(self)
@@ -306,6 +332,7 @@ class AcceptConnections(Thread):
 			new_client = ClientConnections(client, connection)
 			new_client.daemon = True
 			new_client.start()
+
 
 class Client:
 	def __init__(self, listen_port, pid, port_mapping):
@@ -361,9 +388,12 @@ class Client:
 					#CLIENT_STATE.activeLink[self.port_mapping[key]] = False
 					C2C_CONNECTIONS[key].close()
 				sys.exit()
-			if user_input == "C":
+			elif user_input == "C":
 				for key in C2C_CONNECTIONS:
 					print(str(key))
+			else:
+				client_msg = ClientMessage("CLIENT_REQ", user_input)
+				MessageQueue.append(client_msg)
 
 
 
@@ -375,27 +405,27 @@ if __name__ == "__main__":
 		listen_port = 7001
 		pid = 1
 		port_mapping = { 2:7012, 3:7013, 4:7014, 5:7015}
-		timer = Timer(5)
+		timer = Timer(20)
 	elif sys.argv[1] == "p2":
 		listen_port = 7002
 		pid = 2
 		port_mapping = { 1:7012, 3:7023, 4:7024, 5:7025}
-		timer = Timer(10)
+		timer = Timer(30)
 	elif sys.argv[1] == "p3":
 		listen_port = 7003
 		pid = 3
 		port_mapping = { 1:7013, 2:7023, 4:7034, 5:7035}
-		timer = Timer(15)
+		timer = Timer(25)
 	elif sys.argv[1] == "p4":
 		listen_port = 7004
 		pid = 4
 		port_mapping = { 1:7014, 2:7024, 3:7034, 5:7045}
-		timer = Timer(5)
+		timer = Timer(50)
 	elif sys.argv[1] == "p5":
 		listen_port = 7005
 		pid = 5
 		port_mapping = { 1:7015, 2:7025, 3:7035, 4:7045}
-		timer = Timer(5)
+		timer = Timer(50)
 		
 
 	CLIENT_STATE = ClientState(pid, port_mapping)
