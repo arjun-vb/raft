@@ -105,10 +105,10 @@ class Server(Thread):
 		if data.term < CLIENT_STATE.curr_term:
 			vote = False
 
-		elif data.term > CLIENT_STATE.curr_term:
-			vote = True
-	
 		else:
+			if data.term > CLIENT_STATE.curr_term:
+				CLIENT_STATE.curr_term = data.term
+				CLIENT_STATE.votedFor = 0
 			if CLIENT_STATE.votedFor == 0 or CLIENT_STATE.votedFor == data.candidateId: 
 				if CLIENT_STATE.logs[-1].term < data.lastLogTerm:
 					vote = True
@@ -144,6 +144,7 @@ class Server(Thread):
 				key = str(CLIENT_STATE.pid) + "|" + str(data.term)
 				CLIENT_STATE.voteCounts[key] += 1
 				if CLIENT_STATE.voteCounts[key] >= 3:
+					print("BECAME LEADER")
 					CLIENT_STATE.curr_state = "LEADER"
 					for key in CLIENT_STATE.nextIndex:
 						CLIENT_STATE.nextIndex[key] = CLIENT_STATE.logs[-1].index + 1
@@ -342,14 +343,15 @@ class AcceptConnections(Thread):
 
 
 class Client:
-	def __init__(self, listen_port, pid, port_mapping):
+	def __init__(self, listen_port, pid, port_mapping, filePath):
 		self.listen_port = listen_port
 		self.pid = pid
 		self.ip = '127.0.0.1'
 		self.port_mapping = port_mapping
+		self.filePath = filePath
 
 	def start_client(self):
-		global CLIENT_STATE
+		
 		acceptConn = AcceptConnections(self.ip, self.listen_port)
 		acceptConn.daemon = True
 		acceptConn.start()
@@ -389,16 +391,16 @@ class Client:
 		#filePath = "'" + os.getcwd()+"/logs/c1.txt'"
 		#print(str(filePath)) 
 		global CLIENT_STATE
-		filePath = '/home/arjun/ucsb/cs271_distributed_systems/raft/logs/c1.txt'
+		#filePath = '/home/arjun/ucsb/cs271_distributed_systems/raft/logs/c1.txt'
 
-		if os.path.exists(filePath):
-			file = open(filePath) 
-			if os.stat(filePath).st_size != 0: 
+		if os.path.exists(self.filePath):
+			file = open(self.filePath) 
+			if os.stat(self.filePath).st_size != 0: 
 				CLIENT_STATE = pickle.loads(file.read())
 				CLIENT_STATE.last_recv_time = time.time()
 				file.close()
 		else:
-			print("does not exist")
+			print("Prev state does not exist")
 			
 		while True:
 			user_input = raw_input()
@@ -413,7 +415,7 @@ class Client:
 				for key in C2C_CONNECTIONS:
 					print(str(key))
 			elif user_input == "SV":
-				file = open(filePath, 'w')
+				file = open(self.filePath, 'w')
 				file.write(pickle.dumps(CLIENT_STATE))
 				file.close()
 			else:
@@ -425,37 +427,43 @@ class Client:
 if __name__ == "__main__":
 	listen_port = 0
 	pid = 0
+	filePath = '/home/arjun/ucsb/cs271_distributed_systems/raft/logs/'
 
 	if sys.argv[1] == "p1":
 		listen_port = 7001
 		pid = 1
 		port_mapping = { 2:7012, 3:7013, 4:7014, 5:7015}
-		timer = Timer(10)
+		filePath += 'c1.txt'
+		timer = Timer(20)
 	elif sys.argv[1] == "p2":
 		listen_port = 7002
 		pid = 2
 		port_mapping = { 1:7012, 3:7023, 4:7024, 5:7025}
+		filePath += 'c2.txt'
 		timer = Timer(30)
 	elif sys.argv[1] == "p3":
 		listen_port = 7003
 		pid = 3
 		port_mapping = { 1:7013, 2:7023, 4:7034, 5:7035}
+		filePath += 'c3.txt'
 		timer = Timer(25)
 	elif sys.argv[1] == "p4":
 		listen_port = 7004
 		pid = 4
 		port_mapping = { 1:7014, 2:7024, 3:7034, 5:7045}
-		timer = Timer(50)
+		filePath += 'c4.txt'
+		timer = Timer(35)
 	elif sys.argv[1] == "p5":
 		listen_port = 7005
 		pid = 5
 		port_mapping = { 1:7015, 2:7025, 3:7035, 4:7045}
-		timer = Timer(50)
+		filePath += 'c5.txt'
+		timer = Timer(40)
 		
 
 	CLIENT_STATE = ClientState(pid, port_mapping)
 	timer.daemon = True
 	timer.start()
 
-	client = Client(listen_port, pid, port_mapping)
+	client = Client(listen_port, pid, port_mapping, filePath)
 	client.start_client()
