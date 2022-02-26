@@ -1,3 +1,4 @@
+import os
 import sys
 import socket
 import pickle
@@ -71,12 +72,14 @@ class Server(Thread):
 								CLIENT_STATE.logs[-1].index, CLIENT_STATE.logs[-1].term, \
 								entries, CLIENT_STATE.commitIndex)
 		CLIENT_STATE.logs.append(newEntry)
-
+		CLIENT_STATE.leaderHeartbeat = time.time()
+		
 		for client in CLIENT_STATE.port_mapping:
 			if CLIENT_STATE.activeLink[client] == True:
 				print("New log entry for index|term " + str(newEntry.index) + "|" + str(CLIENT_STATE.curr_term) + " sent to " + str(client))
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[client]].send(pickle.dumps(appendEntry))
-
+		for entry in CLIENT_STATE.logs:
+			print(str(entry))
 
 	def handleReqVote_Leader(self, data):
 
@@ -172,6 +175,8 @@ class Server(Thread):
 				if len(data.entries) > 0:
 					for entry in data.entries:
 						CLIENT_STATE.logs.append(entry)
+					for entry in CLIENT_STATE.logs:
+						print(str(entry))
 				CLIENT_STATE.commitIndex = data.commitIndex
 				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 					CLIENT_STATE.curr_term, True))
@@ -197,6 +202,8 @@ class Server(Thread):
 				if len(data.entries) > 0:
 					for entry in data.entries:
 						CLIENT_STATE.logs.append(entry)
+					for entry in CLIENT_STATE.logs:
+						print(str(entry))
 				CLIENT_STATE.commitIndex = data.commitIndex
 				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 					CLIENT_STATE.curr_term, True))
@@ -212,8 +219,8 @@ class Server(Thread):
 		if data.success == True:  
 			CLIENT_STATE.nextIndex[data.pid] = CLIENT_STATE.logs[-1].index + 1
 			index = CLIENT_STATE.commitIndex + 1
-			while index <= CLIENT_STATE.logs[-1].index:
-				CLIENT_STATE.logEntryCounts[index].add(data.pid)
+			while index <= CLIENT_STATE.logs[-1].index:	
+				CLIENT_STATE.logEntryCounts[index].add(data.pid)			
 				if len(CLIENT_STATE.logEntryCounts[index]) >= 3:
 					if CLIENT_STATE.logs[index].term == CLIENT_STATE.curr_term:
 						CLIENT_STATE.commitIndex = index
@@ -340,10 +347,9 @@ class Client:
 		self.pid = pid
 		self.ip = '127.0.0.1'
 		self.port_mapping = port_mapping
-		self.start_client()
 
 	def start_client(self):
-		
+		global CLIENT_STATE
 		acceptConn = AcceptConnections(self.ip, self.listen_port)
 		acceptConn.daemon = True
 		acceptConn.start()
@@ -379,6 +385,21 @@ class Client:
 
 
 	def start_console(self):
+		#print(os.getcwd())
+		#filePath = "'" + os.getcwd()+"/logs/c1.txt'"
+		#print(str(filePath)) 
+		global CLIENT_STATE
+		filePath = '/home/arjun/ucsb/cs271_distributed_systems/raft/logs/c1.txt'
+
+		if os.path.exists(filePath):
+			file = open(filePath) 
+			if os.stat(filePath).st_size != 0: 
+				CLIENT_STATE = pickle.loads(file.read())
+				CLIENT_STATE.last_recv_time = time.time()
+				file.close()
+		else:
+			print("does not exist")
+			
 		while True:
 			user_input = raw_input()
 			if user_input == "Q":
@@ -391,6 +412,10 @@ class Client:
 			elif user_input == "C":
 				for key in C2C_CONNECTIONS:
 					print(str(key))
+			elif user_input == "SV":
+				file = open(filePath, 'w')
+				file.write(pickle.dumps(CLIENT_STATE))
+				file.close()
 			else:
 				client_msg = ClientMessage("CLIENT_REQ", user_input)
 				MessageQueue.append(client_msg)
@@ -405,7 +430,7 @@ if __name__ == "__main__":
 		listen_port = 7001
 		pid = 1
 		port_mapping = { 2:7012, 3:7013, 4:7014, 5:7015}
-		timer = Timer(20)
+		timer = Timer(10)
 	elif sys.argv[1] == "p2":
 		listen_port = 7002
 		pid = 2
@@ -432,4 +457,5 @@ if __name__ == "__main__":
 	timer.daemon = True
 	timer.start()
 
-	Client(listen_port, pid, port_mapping)
+	client = Client(listen_port, pid, port_mapping)
+	client.start_client()

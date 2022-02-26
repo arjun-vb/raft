@@ -5,6 +5,9 @@ class LogEntry:
 		self.term = term
 		self.index = index
 		self.message = message
+	
+	def __str__(self):
+		return str(self.term) + "|" + str(self.index) + "|" + str(self.message)
 
 class RequestVote:
 	def __init__(self, req_type, candidateId, term, lastLogIndex, lastLogTerm):
