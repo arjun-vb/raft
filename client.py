@@ -3,6 +3,7 @@ import sys
 import socket
 import pickle
 import time
+import rsa
 import threading
 from threading import Thread
 from common import *
@@ -175,7 +176,7 @@ class Server(Thread):
 			if data.prevLogIndex < len(CLIENT_STATE.logs) and CLIENT_STATE.logs[data.prevLogIndex].term == data.prevLogTerm:
 				if len(data.entries) > 0:
 					for entry in data.entries:
-						CLIENT_STATE.logs.append(entry)
+						CLIENT_STATE.logs[entry.index] = entry
 					for entry in CLIENT_STATE.logs:
 						print(str(entry))
 				CLIENT_STATE.commitIndex = data.commitIndex
@@ -202,7 +203,8 @@ class Server(Thread):
 			if data.prevLogIndex < len(CLIENT_STATE.logs) and CLIENT_STATE.logs[data.prevLogIndex].term == data.prevLogTerm:
 				if len(data.entries) > 0:
 					for entry in data.entries:
-						CLIENT_STATE.logs.append(entry)
+						CLIENT_STATE.logs[entry.index] = entry
+						#CLIENT_STATE.logs.append(entry)
 					for entry in CLIENT_STATE.logs:
 						print(str(entry))
 				CLIENT_STATE.commitIndex = data.commitIndex
@@ -393,17 +395,21 @@ class Client:
 		global CLIENT_STATE
 		#filePath = '/home/arjun/ucsb/cs271_distributed_systems/raft/logs/c1.txt'
 
-		if os.path.exists(self.filePath):
-			file = open(self.filePath) 
-			if os.stat(self.filePath).st_size != 0: 
+		# if os.path.exists(self.filePath):
+		# 	file = open(self.filePath)
+		with open(self.filePath, 'rb') as file: 
+			if os.stat(self.filePath).st_size != 0:
+				print("loading saved state") 
 				CLIENT_STATE = pickle.loads(file.read())
 				CLIENT_STATE.last_recv_time = time.time()
+				for entry in CLIENT_STATE.logs:
+					print(str(entry))
 				file.close()
-		else:
-			print("Prev state does not exist")
+		# else:
+		# 	print("Prev state does not exist")
 			
 		while True:
-			user_input = raw_input()
+			user_input = input()
 			if user_input == "Q":
 				for key in C2C_CONNECTIONS:
 					print(str(key))
@@ -415,9 +421,19 @@ class Client:
 				for key in C2C_CONNECTIONS:
 					print(str(key))
 			elif user_input == "SV":
-				file = open(self.filePath, 'w')
+				file = open(self.filePath, 'wb')
 				file.write(pickle.dumps(CLIENT_STATE))
 				file.close()
+			elif user_input == "ENC":
+				message = "arjun encrypted"
+				encMessage = rsa.encrypt(message.encode(), CLIENT_STATE.publicKeys[self.pid])
+				
+				print("original string: ", message)
+				print("encrypted string: ", encMessage)
+				
+				decMessage = rsa.decrypt(encMessage, CLIENT_STATE.privateKey).decode()
+				
+				print("decrypted string: ", decMessage)				
 			else:
 				client_msg = ClientMessage("CLIENT_REQ", user_input)
 				MessageQueue.append(client_msg)
@@ -427,43 +443,58 @@ class Client:
 if __name__ == "__main__":
 	listen_port = 0
 	pid = 0
-	filePath = '/home/arjun/ucsb/cs271_distributed_systems/raft/logs/'
+	#filePath = '/home/arjun/ucsb/cs271_distributed_systems/raft/logs/'
+	filePath = ""
 
 	if sys.argv[1] == "p1":
 		listen_port = 7001
 		pid = 1
 		port_mapping = { 2:7012, 3:7013, 4:7014, 5:7015}
-		filePath += 'c1.txt'
+		filePath = os.path.join(os.getcwd(), 'logs/c1.txt')
 		timer = Timer(20)
 	elif sys.argv[1] == "p2":
 		listen_port = 7002
 		pid = 2
 		port_mapping = { 1:7012, 3:7023, 4:7024, 5:7025}
-		filePath += 'c2.txt'
+		filePath = os.path.join(os.getcwd(), 'logs/c2.txt')
 		timer = Timer(30)
 	elif sys.argv[1] == "p3":
 		listen_port = 7003
 		pid = 3
 		port_mapping = { 1:7013, 2:7023, 4:7034, 5:7035}
-		filePath += 'c3.txt'
+		filePath = os.path.join(os.getcwd(), 'logs/c3.txt')
 		timer = Timer(25)
 	elif sys.argv[1] == "p4":
 		listen_port = 7004
 		pid = 4
 		port_mapping = { 1:7014, 2:7024, 3:7034, 5:7045}
-		filePath += 'c4.txt'
+		filePath = os.path.join(os.getcwd(), 'logs/c4.txt')
 		timer = Timer(35)
 	elif sys.argv[1] == "p5":
 		listen_port = 7005
 		pid = 5
 		port_mapping = { 1:7015, 2:7025, 3:7035, 4:7045}
-		filePath += 'c5.txt'
+		filePath = os.path.join(os.getcwd(), 'logs/c5.txt')
 		timer = Timer(40)
 		
+	os.makedirs(os.path.dirname(filePath), exist_ok=True)
+
 
 	CLIENT_STATE = ClientState(pid, port_mapping)
 	timer.daemon = True
 	timer.start()
+
+	for i in range(1,6):
+		keyPath = os.path.join(os.getcwd(), 'keys/pub'+str(i)+'.pem')
+		with open(keyPath) as f:
+			CLIENT_STATE.publicKeys[i] = rsa.PublicKey.load_pkcs1(f.read().encode('utf8'))
+			f.close()
+		if i == pid:
+			keyPath = os.path.join(os.getcwd(), 'keys/pvt'+str(i)+'.pem')
+			with open(keyPath) as f:
+				CLIENT_STATE.privateKey = rsa.PrivateKey.load_pkcs1(f.read().encode('utf8'))
+				f.close()
+			
 
 	client = Client(listen_port, pid, port_mapping, filePath)
 	client.start_client()

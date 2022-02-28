@@ -56,6 +56,8 @@ class ClientState:
 		self.leaderHeartbeat = time.time()
 		self.nextIndex = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
 		self.logEntryCounts = {}
+		self.publicKeys = {}
+		self.privateKey = None
 
 class ClientMessage:
 	def __init__(self, req_type, message):
