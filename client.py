@@ -28,7 +28,13 @@ class Server(Thread):
 		while True:
 			if len(MessageQueue) != 0:
 				data = MessageQueue.pop(0)
-				if CLIENT_STATE.curr_state == "LEADER":
+
+				if data.req_type == "FIX_LINK":
+					CLIENT_STATE.activeLink[data.dest] = True
+				elif data.req_type == "FAIL_LINK":
+					CLIENT_STATE.activeLink[data.dest] = False
+
+				elif CLIENT_STATE.curr_state == "LEADER":
 					if data.req_type == "REQ_VOTE":
 						print("Request vote leader")
 						self.handleReqVote_Leader(data)
@@ -73,6 +79,7 @@ class Server(Thread):
 								CLIENT_STATE.logs[-1].index, CLIENT_STATE.logs[-1].term, \
 								entries, CLIENT_STATE.commitIndex)
 		CLIENT_STATE.logs.append(newEntry)
+		#CLIENT_STATE.logs[newEntry.index] = newEntry
 		CLIENT_STATE.leaderHeartbeat = time.time()
 		
 		for client in CLIENT_STATE.port_mapping:
@@ -160,15 +167,15 @@ class Server(Thread):
 					heartBeatThread.start()
 
 	
-	def handleAppendEntry_Follower(self, data):
-
-		CLIENT_STATE.last_recv_time = time.time()
+	def handleAppendEntry_Follower(self, data):		
 
 		if data.term < CLIENT_STATE.curr_term:
 			response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 				CLIENT_STATE.curr_term, False))
 			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 		else:
+			CLIENT_STATE.last_recv_time = time.time()
+
 			CLIENT_STATE.curr_state = "FOLLOWER"
 			if data.term > CLIENT_STATE.curr_term:
 				CLIENT_STATE.curr_term = data.term
@@ -176,15 +183,27 @@ class Server(Thread):
 			if data.prevLogIndex < len(CLIENT_STATE.logs) and CLIENT_STATE.logs[data.prevLogIndex].term == data.prevLogTerm:
 				if len(data.entries) > 0:
 					for entry in data.entries:
-						CLIENT_STATE.logs[entry.index] = entry
-					for entry in CLIENT_STATE.logs:
-						print(str(entry))
+						#CLIENT_STATE.logs[entry.index] = entry
+						CLIENT_STATE.logs.append(entry)
+					
+					#for i in range (data.entries[-1].index + 1, len(CLIENT_STATE.logs)):
+					#	del CLIENT_STATE.logs[i]
+					CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.entries[-1].index+1]
+				elif data.prevLogIndex < len(CLIENT_STATE.logs) - 1:
+					CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.prevLogIndex+1]
+				for entry in CLIENT_STATE.logs:
+					print(str(entry))
 				CLIENT_STATE.commitIndex = data.commitIndex
 				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 					CLIENT_STATE.curr_term, True))
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 			else:
-				# del mismatched log
+				# while data.prevLogIndex < len(CLIENT_STATE.logs):
+				# 	del CLIENT_STATE.logs[-1]
+				# if data.prevLogIndex < len(CLIENT_STATE.logs):
+				# 	for i in range (data.prevLogIndex, len(CLIENT_STATE.logs)):
+				# 		print("deleting log f")
+				# 		del CLIENT_STATE.logs[i]
 				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 					CLIENT_STATE.curr_term, False))
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
@@ -197,22 +216,32 @@ class Server(Thread):
 				CLIENT_STATE.curr_term, False))
 			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 		else:
+			CLIENT_STATE.last_recv_time = time.time()
+
 			CLIENT_STATE.curr_state = "FOLLOWER"
 			CLIENT_STATE.curr_term = data.term
 			CLIENT_STATE.votedFor = 0
 			if data.prevLogIndex < len(CLIENT_STATE.logs) and CLIENT_STATE.logs[data.prevLogIndex].term == data.prevLogTerm:
 				if len(data.entries) > 0:
 					for entry in data.entries:
-						CLIENT_STATE.logs[entry.index] = entry
-						#CLIENT_STATE.logs.append(entry)
-					for entry in CLIENT_STATE.logs:
-						print(str(entry))
+						#CLIENT_STATE.logs[entry.index] = entry
+						CLIENT_STATE.logs.append(entry)
+					CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.entries[-1].index + 1]
+				elif data.prevLogIndex < len(CLIENT_STATE.logs) - 1:
+					CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.prevLogIndex+1]
+				#for i in range (data.entries[-1].index + 1, len(CLIENT_STATE.logs)):
+				#	del CLIENT_STATE.logs = CLI
+				for entry in CLIENT_STATE.logs:
+					print(str(entry))
 				CLIENT_STATE.commitIndex = data.commitIndex
 				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 					CLIENT_STATE.curr_term, True))
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 			else:
-				# del mismatched log
+				# if data.prevLogIndex < len(CLIENT_STATE.logs):
+				# 	for i in range (data.prevLogIndex, len(CLIENT_STATE.logs)):
+				# 		print("deleting log L")
+				# 		del CLIENT_STATE.logs[i]
 				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 					CLIENT_STATE.curr_term, False))
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
@@ -247,7 +276,7 @@ class Server(Thread):
 
 
 class HeartBeat(Thread):
-	def __init__(self, timeout = 15):
+	def __init__(self, timeout = 9):
 		Thread.__init__(self)
 		self.timeout = timeout
 
@@ -410,12 +439,62 @@ class Client:
 			
 		while True:
 			user_input = input()
-			if user_input == "Q":
-				for key in C2C_CONNECTIONS:
-					print(str(key))
-					#C2C_CONNECTIONS[key].shutdown(0)
-					#CLIENT_STATE.activeLink[self.port_mapping[key]] = False
-					C2C_CONNECTIONS[key].close()
+			if user_input.startswith("createGroup"):
+				print("Create Group")
+				# create message and send to leader
+			elif user_input.startswith("add"):
+				print("Add")
+				# create message and send to leader
+			elif user_input.startswith("kick"):
+				print("Kick")
+				# create message and send to leader
+			elif user_input.startswith("writeMessage"):
+				print("Write Message")
+				# create message and send to leader
+			elif user_input.startswith("printGroup"):
+				print("Print Group")
+				# print log
+			elif user_input.startswith("failLink"):
+				print("Fail Link")
+				req, src, dest = user_input.split(" ")
+				src = int(src)
+				dest = int(dest)
+				# print(str(src))
+				# print(str(dest))
+				networkLinkDest = NetworkLink("FAIL_LINK", src, dest)
+				networkLinkSrc = NetworkLink("FAIL_LINK", dest, src)
+				if int(src) == CLIENT_STATE.pid:
+					CLIENT_STATE.activeLink[dest] = False
+					C2C_CONNECTIONS[CLIENT_STATE.port_mapping[dest]].send(pickle.dumps(networkLinkSrc))
+				elif int(dest) == CLIENT_STATE.pid:
+					CLIENT_STATE.activeLink[src] = False
+					C2C_CONNECTIONS[CLIENT_STATE.port_mapping[src]].send(pickle.dumps(networkLinkDest))
+				else:
+					C2C_CONNECTIONS[CLIENT_STATE.port_mapping[src]].send(pickle.dumps(networkLinkDest))
+					C2C_CONNECTIONS[CLIENT_STATE.port_mapping[dest]].send(pickle.dumps(networkLinkSrc))
+
+			elif user_input.startswith("fixLink"):
+				print("Fix Link")
+				req, src, dest = user_input.split(" ")
+				src = int(src)
+				dest = int(dest)
+				networkLinkDest = NetworkLink("FIX_LINK", src, dest)
+				networkLinkSrc = NetworkLink("FIX_LINK", dest, src)
+				if src == pid:
+					CLIENT_STATE.activeLink[dest] = True
+					C2C_CONNECTIONS[CLIENT_STATE.port_mapping[dest]].send(pickle.dumps(networkLinkSrc))
+				elif dest == pid:
+					CLIENT_STATE.activeLink[src] = True
+					C2C_CONNECTIONS[CLIENT_STATE.port_mapping[src]].send(pickle.dumps(networkLinkDest))
+				else:
+					C2C_CONNECTIONS[CLIENT_STATE.port_mapping[src]].send(pickle.dumps(networkLinkDest))
+					C2C_CONNECTIONS[CLIENT_STATE.port_mapping[dest]].send(pickle.dumps(networkLinkSrc))
+			elif user_input.startswith("failProcess"):
+				sys.exit()	
+			elif user_input == "Q":
+				# for key in C2C_CONNECTIONS:
+				# 	print(str(key))
+				# 	C2C_CONNECTIONS[key].close()
 				sys.exit()
 			elif user_input == "C":
 				for key in C2C_CONNECTIONS:
@@ -451,7 +530,7 @@ if __name__ == "__main__":
 		pid = 1
 		port_mapping = { 2:7012, 3:7013, 4:7014, 5:7015}
 		filePath = os.path.join(os.getcwd(), 'logs/c1.txt')
-		timer = Timer(20)
+		timer = Timer(15)
 	elif sys.argv[1] == "p2":
 		listen_port = 7002
 		pid = 2

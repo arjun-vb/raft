@@ -63,3 +63,10 @@ class ClientMessage:
 	def __init__(self, req_type, message):
 		self.req_type = req_type
 		self.message = message
+
+class NetworkLink:
+	def __init__(self, req_type, src, dest):
+		self.req_type = req_type
+		self.src = src
+		self.dest = dest
+
