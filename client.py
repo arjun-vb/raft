@@ -175,7 +175,7 @@ class Server(Thread):
 			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 		else:
 			CLIENT_STATE.last_recv_time = time.time()
-
+			CLIENT_STATE.curr_leader = data.leaderId
 			CLIENT_STATE.curr_state = "FOLLOWER"
 			if data.term > CLIENT_STATE.curr_term:
 				CLIENT_STATE.curr_term = data.term
@@ -218,6 +218,7 @@ class Server(Thread):
 		else:
 			CLIENT_STATE.last_recv_time = time.time()
 
+			CLIENT_STATE.curr_leader = data.leaderId
 			CLIENT_STATE.curr_state = "FOLLOWER"
 			CLIENT_STATE.curr_term = data.term
 			CLIENT_STATE.votedFor = 0
@@ -311,6 +312,7 @@ class Timer(Thread):
 
 	def start_election(self):
 		CLIENT_STATE.curr_state = "CANDIDATE"
+		CLIENT_STATE.curr_leader = CLIENT_STATE.pid
 		CLIENT_STATE.curr_term += 1
 		CLIENT_STATE.votedFor = CLIENT_STATE.pid		
 		CLIENT_STATE.voteCounts[str(CLIENT_STATE.pid) + "|" + str(CLIENT_STATE.curr_term)] = 1
@@ -416,6 +418,17 @@ class Client:
 			except:
 				a = 1
 
+	def broadcast(appendEntry):
+		if CLIENT_STATE.curr_state == "LEADER":
+			for client in CLIENT_STATE.port_mapping:
+				if CLIENT_STATE.activeLink[client] == True:
+					print("AppendEntry for " + str(CLIENT_STATE.pid) + "|" + str(CLIENT_STATE.curr_term) + " sent to " + str(client))
+					C2C_CONNECTIONS[CLIENT_STATE.port_mapping[client]].send(pickle.dumps(appendEntry))
+		else:
+			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[CLIENT_STATE.curr_leader]].send(pickle.dumps(appendEntry))
+			
+
+	#def generateKeys():
 
 	def start_console(self):
 		#print(os.getcwd())
@@ -441,16 +454,35 @@ class Client:
 			user_input = input()
 			if user_input.startswith("createGroup"):
 				print("Create Group")
-				# create message and send to leader
-			elif user_input.startswith("add"):
-				print("Add")
-				# create message and send to leader
-			elif user_input.startswith("kick"):
-				print("Kick")
-				# create message and send to leader
-			elif user_input.startswith("writeMessage"):
-				print("Write Message")
-				# create message and send to leader
+				req, group_id, client_ids = user_input.split(" ", 2)
+				public_key, private_key = rsa.newkeys(512)
+				encPvtKeys = {}
+				#for client in client_ids.split(" "):
+				#	encPvtKeys[client] = "" #rsa.encrypt(private_key.encode(), CLIENT_STATE.publicKeys[client])
+				clientReq = ClientRequest("CLIENT_REQ", "CREATE_GRP", group_id, "", encPvtKeys, public_key)
+				broadcast(clientReq)
+
+			# elif user_input.startswith("add"):
+			# 	print("Add")
+			# 	req, group_id, client_id = user_input.split(" ")
+			# 	clientReq = ClientRequest("CLIENT_REQ", "ADD_USER", group_id, "", client_id, None)
+			# 	broadcast(clientReq)
+
+			# elif user_input.startswith("kick"):
+			# 	print("Kick")
+			# 	req, group_id, client_id = user_input.split(" ")
+			# 	clientReq = ClientRequest("CLIENT_REQ", "KICK_USER", group_id, "", client_id, None)
+			# 	broadcast(clientReq)
+	
+			# elif user_input.startswith("writeMessage"):
+			# 	print("Write Message")
+			# 	req, group_id, message = user_input.split(" ", 2)
+			# 	public_key, private_key = rsa.newkeys(512)
+			# 	encMessage = rsa.encrypt(message.encode(), public_key)
+			# 	#encPvtKey = rsa.encrypt(private_key.encode(), CLIENT_STATE.publicKeys[])
+			# 	clientReq = ClientRequest("CLIENT_REQ", "WRITE_MESSAGE", group_id, encMessage, client_id, None)
+			# 	broadcast(clientReq)
+
 			elif user_input.startswith("printGroup"):
 				print("Print Group")
 				# print log

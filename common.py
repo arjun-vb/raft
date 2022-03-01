@@ -64,6 +64,15 @@ class ClientMessage:
 		self.req_type = req_type
 		self.message = message
 
+class ClientRequest:
+	def __init__(self, req_type, message_type, group_id, encMessage, encPvtKey, publicKey):
+		self.self = self
+		self.req_type = req_type
+		self.group_id = group_id
+		self.encMessage = encMessage
+		self.encPvtKey = encPvtKey
+		self.publicKey = publicKey
+
 class NetworkLink:
 	def __init__(self, req_type, src, dest):
 		self.req_type = req_type
