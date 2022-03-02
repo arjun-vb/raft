@@ -9,7 +9,7 @@ from threading import Thread
 from common import *
 
 
-BUFF_SIZE = 1024
+BUFF_SIZE = 20480
 C2C_CONNECTIONS = {}
 CLIENT_STATE = None
 MessageQueue = []
@@ -70,7 +70,7 @@ class Server(Thread):
 	def handleClientReq_Leader(self, data):
 
 		entries = []
-		newEntry = LogEntry(CLIENT_STATE.curr_term, len(CLIENT_STATE.logs), data.message)
+		newEntry = LogEntry(CLIENT_STATE.curr_term, len(CLIENT_STATE.logs), data)
 		entries.append(newEntry)
 		CLIENT_STATE.logEntryCounts[newEntry.index] = set()
 		CLIENT_STATE.logEntryCounts[newEntry.index].add(CLIENT_STATE.pid)
@@ -185,9 +185,6 @@ class Server(Thread):
 					for entry in data.entries:
 						#CLIENT_STATE.logs[entry.index] = entry
 						CLIENT_STATE.logs.append(entry)
-					
-					#for i in range (data.entries[-1].index + 1, len(CLIENT_STATE.logs)):
-					#	del CLIENT_STATE.logs[i]
 					CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.entries[-1].index+1]
 				elif data.prevLogIndex < len(CLIENT_STATE.logs) - 1:
 					CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.prevLogIndex+1]
@@ -198,12 +195,6 @@ class Server(Thread):
 					CLIENT_STATE.curr_term, True))
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 			else:
-				# while data.prevLogIndex < len(CLIENT_STATE.logs):
-				# 	del CLIENT_STATE.logs[-1]
-				# if data.prevLogIndex < len(CLIENT_STATE.logs):
-				# 	for i in range (data.prevLogIndex, len(CLIENT_STATE.logs)):
-				# 		print("deleting log f")
-				# 		del CLIENT_STATE.logs[i]
 				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 					CLIENT_STATE.curr_term, False))
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
@@ -230,8 +221,7 @@ class Server(Thread):
 					CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.entries[-1].index + 1]
 				elif data.prevLogIndex < len(CLIENT_STATE.logs) - 1:
 					CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.prevLogIndex+1]
-				#for i in range (data.entries[-1].index + 1, len(CLIENT_STATE.logs)):
-				#	del CLIENT_STATE.logs = CLI
+
 				for entry in CLIENT_STATE.logs:
 					print(str(entry))
 				CLIENT_STATE.commitIndex = data.commitIndex
@@ -239,10 +229,6 @@ class Server(Thread):
 					CLIENT_STATE.curr_term, True))
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 			else:
-				# if data.prevLogIndex < len(CLIENT_STATE.logs):
-				# 	for i in range (data.prevLogIndex, len(CLIENT_STATE.logs)):
-				# 		print("deleting log L")
-				# 		del CLIENT_STATE.logs[i]
 				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 					CLIENT_STATE.curr_term, False))
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
@@ -277,7 +263,7 @@ class Server(Thread):
 
 
 class HeartBeat(Thread):
-	def __init__(self, timeout = 9):
+	def __init__(self, timeout = 20):
 		Thread.__init__(self)
 		self.timeout = timeout
 
@@ -418,27 +404,35 @@ class Client:
 			except:
 				a = 1
 
-	def broadcast(appendEntry):
+	def broadcast(self, appendEntry):
 		if CLIENT_STATE.curr_state == "LEADER":
-			for client in CLIENT_STATE.port_mapping:
-				if CLIENT_STATE.activeLink[client] == True:
-					print("AppendEntry for " + str(CLIENT_STATE.pid) + "|" + str(CLIENT_STATE.curr_term) + " sent to " + str(client))
-					C2C_CONNECTIONS[CLIENT_STATE.port_mapping[client]].send(pickle.dumps(appendEntry))
+			MessageQueue.append(appendEntry)
 		else:
 			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[CLIENT_STATE.curr_leader]].send(pickle.dumps(appendEntry))
 			
+	def encryptPvtKey(self, private_key, public_key):
+		encKey = []
+		encKey.append(rsa.encrypt(str(private_key.n).encode(), public_key))
+		encKey.append(rsa.encrypt(str(private_key.e).encode(), public_key))
+		encKey.append(rsa.encrypt(str(private_key.d).encode(), public_key))
+		encKey.append(rsa.encrypt(str(private_key.p).encode(), public_key))
+		encKey.append(rsa.encrypt(str(private_key.q).encode(), public_key))
+		return encKey
 
-	#def generateKeys():
+	def decryptPvtKey(self, enc_key, my_key):
+		pvtKey = enc_key 
+		n = int(rsa.decrypt(enc_key[0], my_key).decode())
+		e = int(rsa.decrypt(enc_key[1], my_key).decode())
+		d = int(rsa.decrypt(enc_key[2], my_key).decode())
+		p = int(rsa.decrypt(enc_key[3], my_key).decode())
+		q = int(rsa.decrypt(enc_key[4], my_key).decode())
+		privateKey = rsa.PrivateKey(n, e, d, p, q)
+		return privateKey
 
 	def start_console(self):
-		#print(os.getcwd())
-		#filePath = "'" + os.getcwd()+"/logs/c1.txt'"
-		#print(str(filePath)) 
-		global CLIENT_STATE
-		#filePath = '/home/arjun/ucsb/cs271_distributed_systems/raft/logs/c1.txt'
 
-		# if os.path.exists(self.filePath):
-		# 	file = open(self.filePath)
+		global CLIENT_STATE
+
 		with open(self.filePath, 'rb') as file: 
 			if os.stat(self.filePath).st_size != 0:
 				print("loading saved state") 
@@ -447,45 +441,97 @@ class Client:
 				for entry in CLIENT_STATE.logs:
 					print(str(entry))
 				file.close()
-		# else:
-		# 	print("Prev state does not exist")
 			
 		while True:
 			user_input = input()
-			if user_input.startswith("createGroup"):
+			#if user_input.startswith("createGroup"):
+			if user_input.startswith("cg"):
 				print("Create Group")
 				req, group_id, client_ids = user_input.split(" ", 2)
-				public_key, private_key = rsa.newkeys(512)
+				public_key, private_key = rsa.newkeys(256)
 				encPvtKeys = {}
-				#for client in client_ids.split(" "):
-				#	encPvtKeys[client] = "" #rsa.encrypt(private_key.encode(), CLIENT_STATE.publicKeys[client])
+				for client in client_ids.split(" "):
+					encPvtKeys[int(client)] = self.encryptPvtKey(private_key, CLIENT_STATE.publicKeys[int(client)]) 
+					#rsa.encrypt(private_key.encode(), CLIENT_STATE.publicKeys[client])
 				clientReq = ClientRequest("CLIENT_REQ", "CREATE_GRP", group_id, "", encPvtKeys, public_key)
-				broadcast(clientReq)
+				self.broadcast(clientReq)
 
-			# elif user_input.startswith("add"):
-			# 	print("Add")
-			# 	req, group_id, client_id = user_input.split(" ")
-			# 	clientReq = ClientRequest("CLIENT_REQ", "ADD_USER", group_id, "", client_id, None)
-			# 	broadcast(clientReq)
+			elif user_input.startswith("add"):
+				print("Add")
+				req, group_id, client_id = user_input.split(" ")
+				#traverse log get private key. public key and encPvtKeys
+				private_key = None
+				public_key = None
+				encPvtKeys = {}
+				for log in CLIENT_STATE.logs[::-1]:
+					if log.message.group_id == group_id:
+						if CLIENT_STATE.pid in log.message.encPvtKeys:
+							public_key = log.message.publicKey
+							encPvtKeys = log.message.encPvtKeys
+						break
+					
+				if public_key != None:
+					private_key = self.decryptPvtKey(encPvtKeys[CLIENT_STATE.pid], CLIENT_STATE.privateKey)
+					encPvtKeys[int(client_id)] = self.encryptPvtKey(private_key, CLIENT_STATE.publicKeys[int(client_id)])
+					clientReq = ClientRequest("CLIENT_REQ", "ADD_USER", group_id, "", encPvtKeys, public_key)
+					self.broadcast(clientReq)
+				else:
+					print("You are not part of group " + str(group_id))
 
-			# elif user_input.startswith("kick"):
-			# 	print("Kick")
-			# 	req, group_id, client_id = user_input.split(" ")
-			# 	clientReq = ClientRequest("CLIENT_REQ", "KICK_USER", group_id, "", client_id, None)
-			# 	broadcast(clientReq)
+			elif user_input.startswith("kick"):
+				print("Kick")
+				req, group_id, client_id = user_input.split(" ")
+				#traverse log get encPvtKeys
+				new_public_key, new_private_key = rsa.newkeys(256)
+
+				new_encPvtKeys = {}
+				private_key = None
+				public_key = None
+				encPvtKeys = {}
+				for log in CLIENT_STATE.logs[::-1]:
+					if log.message.group_id == group_id:
+						if CLIENT_STATE.pid in log.message.encPvtKeys:
+							public_key = log.message.publicKey
+							encPvtKeys = log.message.encPvtKeys
+						break
+
+				if public_key != None:
+					for client in encPvtKeys:
+						if client != int(client_id):
+							new_encPvtKeys[client] = self.encryptPvtKey(new_private_key, CLIENT_STATE.publicKeys[client]) 
+
+					clientReq = ClientRequest("CLIENT_REQ", "KICK_USER", group_id, "", new_encPvtKeys, new_public_key)
+					self.broadcast(clientReq)
+				else:
+					print("You are not part of group " + str(group_id))
 	
-			# elif user_input.startswith("writeMessage"):
-			# 	print("Write Message")
-			# 	req, group_id, message = user_input.split(" ", 2)
-			# 	public_key, private_key = rsa.newkeys(512)
-			# 	encMessage = rsa.encrypt(message.encode(), public_key)
-			# 	#encPvtKey = rsa.encrypt(private_key.encode(), CLIENT_STATE.publicKeys[])
-			# 	clientReq = ClientRequest("CLIENT_REQ", "WRITE_MESSAGE", group_id, encMessage, client_id, None)
-			# 	broadcast(clientReq)
+			elif user_input.startswith("writeMessage"):
+				print("Write Message")
+				req, group_id, message = user_input.split(" ", 2)
+				public_key = None
+				encPvtKeys = {}
+				for log in CLIENT_STATE.logs[::-1]:
+					if log.message.group_id == group_id:
+						public_key = log.message.publicKey
+						encPvtKeys = log.message.encPvtKeys
+						break
+				encMessage = rsa.encrypt(message.encode(), public_key)
+				clientReq = ClientRequest("CLIENT_REQ", "WRITE_MESSAGE", group_id, encMessage, encPvtKeys, public_key)
+				self.broadcast(clientReq)
 
-			elif user_input.startswith("printGroup"):
+			#elif user_input.startswith("printGroup"):
+			elif user_input.startswith("pg"):
 				print("Print Group")
-				# print log
+				req, group_id = user_input.split(" ")
+				for log in CLIENT_STATE.logs:
+					if log.message.group_id == group_id and log.message.message_type == "WRITE_MESSAGE":
+						if CLIENT_STATE.pid in log.message.encPvtKeys:
+							public_key = log.message.publicKey
+							encPvtKeys = log.message.encPvtKeys
+							msg_private_key = self.decryptPvtKey(encPvtKeys[CLIENT_STATE.pid], CLIENT_STATE.privateKey)
+							msg = rsa.decrypt(log.message.encMessage, msg_private_key).decode()
+							print(msg)
+				
 			elif user_input.startswith("failLink"):
 				print("Fail Link")
 				req, src, dest = user_input.split(" ")
@@ -562,31 +608,31 @@ if __name__ == "__main__":
 		pid = 1
 		port_mapping = { 2:7012, 3:7013, 4:7014, 5:7015}
 		filePath = os.path.join(os.getcwd(), 'logs/c1.txt')
-		timer = Timer(15)
+		timer = Timer(30)
 	elif sys.argv[1] == "p2":
 		listen_port = 7002
 		pid = 2
 		port_mapping = { 1:7012, 3:7023, 4:7024, 5:7025}
 		filePath = os.path.join(os.getcwd(), 'logs/c2.txt')
-		timer = Timer(30)
+		timer = Timer(35)
 	elif sys.argv[1] == "p3":
 		listen_port = 7003
 		pid = 3
 		port_mapping = { 1:7013, 2:7023, 4:7034, 5:7035}
 		filePath = os.path.join(os.getcwd(), 'logs/c3.txt')
-		timer = Timer(25)
+		timer = Timer(40)
 	elif sys.argv[1] == "p4":
 		listen_port = 7004
 		pid = 4
 		port_mapping = { 1:7014, 2:7024, 3:7034, 5:7045}
 		filePath = os.path.join(os.getcwd(), 'logs/c4.txt')
-		timer = Timer(35)
+		timer = Timer(45)
 	elif sys.argv[1] == "p5":
 		listen_port = 7005
 		pid = 5
 		port_mapping = { 1:7015, 2:7025, 3:7035, 4:7045}
 		filePath = os.path.join(os.getcwd(), 'logs/c5.txt')
-		timer = Timer(40)
+		timer = Timer(50)
 		
 	os.makedirs(os.path.dirname(filePath), exist_ok=True)
 

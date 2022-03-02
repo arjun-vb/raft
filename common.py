@@ -49,7 +49,7 @@ class ClientState:
 		self.curr_state = "FOLLOWER"
 		self.last_recv_time = time.time()		
 		self.votedFor = 0
-		self.logs = [LogEntry(0,0,"msg")]
+		self.logs = [LogEntry(0,0,None)]
 		self.commitIndex = 0
 		self.activeLink = {1: False, 2: False, 3: False, 4: False, 5: False}
 		self.voteCounts = {}
@@ -66,12 +66,15 @@ class ClientMessage:
 
 class ClientRequest:
 	def __init__(self, req_type, message_type, group_id, encMessage, encPvtKey, publicKey):
-		self.self = self
 		self.req_type = req_type
+		self.message_type = message_type
 		self.group_id = group_id
 		self.encMessage = encMessage
 		self.encPvtKey = encPvtKey
 		self.publicKey = publicKey
+
+	def __str__(self):
+		return self.message_type + "|" + str(self.group_id) + "|" + str(len(self.encPvtKey))
 
 class NetworkLink:
 	def __init__(self, req_type, src, dest):
