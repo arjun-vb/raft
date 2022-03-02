@@ -5,6 +5,7 @@ import pickle
 import time
 import rsa
 import threading
+import random
 from threading import Thread
 from common import *
 
@@ -13,7 +14,6 @@ BUFF_SIZE = 20480
 C2C_CONNECTIONS = {}
 CLIENT_STATE = None
 MessageQueue = []
-
 
 
 def sleep():
@@ -81,7 +81,7 @@ class Server(Thread):
 		CLIENT_STATE.logs.append(newEntry)
 		#CLIENT_STATE.logs[newEntry.index] = newEntry
 		CLIENT_STATE.leaderHeartbeat = time.time()
-		
+		sleep()
 		for client in CLIENT_STATE.port_mapping:
 			if CLIENT_STATE.activeLink[client] == True:
 				print("New log entry for index|term " + str(newEntry.index) + "|" + str(CLIENT_STATE.curr_term) + " sent to " + str(client))
@@ -172,6 +172,7 @@ class Server(Thread):
 		if data.term < CLIENT_STATE.curr_term:
 			response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 				CLIENT_STATE.curr_term, False))
+			sleep()
 			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 		else:
 			CLIENT_STATE.last_recv_time = time.time()
@@ -188,15 +189,17 @@ class Server(Thread):
 					CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.entries[-1].index+1]
 				elif data.prevLogIndex < len(CLIENT_STATE.logs) - 1:
 					CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.prevLogIndex+1]
-				for entry in CLIENT_STATE.logs:
-					print(str(entry))
+				# for entry in CLIENT_STATE.logs:
+				# 	print(str(entry))
 				CLIENT_STATE.commitIndex = data.commitIndex
 				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 					CLIENT_STATE.curr_term, True))
+				sleep()
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 			else:
 				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 					CLIENT_STATE.curr_term, False))
+				sleep()
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 
 
@@ -205,6 +208,7 @@ class Server(Thread):
 		if data.term <= CLIENT_STATE.curr_term:
 			response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 				CLIENT_STATE.curr_term, False))
+			sleep()
 			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 		else:
 			CLIENT_STATE.last_recv_time = time.time()
@@ -222,31 +226,39 @@ class Server(Thread):
 				elif data.prevLogIndex < len(CLIENT_STATE.logs) - 1:
 					CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.prevLogIndex+1]
 
-				for entry in CLIENT_STATE.logs:
-					print(str(entry))
+				# for entry in CLIENT_STATE.logs:
+				# 	print(str(entry))
 				CLIENT_STATE.commitIndex = data.commitIndex
 				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 					CLIENT_STATE.curr_term, True))
+				sleep()
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 			else:
 				response = pickle.dumps(ResponseAppendEntry("RESP_APPEND_ENTRY", CLIENT_STATE.pid, \
 					CLIENT_STATE.curr_term, False))
+				sleep()
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.leaderId]].send(response)
 
 
 	def handleRespAppendEntry_Leader(self, data):
 		if data.success == True:  
 			CLIENT_STATE.nextIndex[data.pid] = CLIENT_STATE.logs[-1].index + 1
+			prevIndex = CLIENT_STATE.commitIndex + 1
 			index = CLIENT_STATE.commitIndex + 1
 			while index <= CLIENT_STATE.logs[-1].index:	
 				CLIENT_STATE.logEntryCounts[index].add(data.pid)			
 				if len(CLIENT_STATE.logEntryCounts[index]) >= 3:
 					if CLIENT_STATE.logs[index].term == CLIENT_STATE.curr_term:
 						CLIENT_STATE.commitIndex = index
+
 					#elif: check leaders term is present in majority - may not be needed I think code automatically takes care
 				else: 
 					break
 				index += 1
+
+			while prevIndex <= CLIENT_STATE.commitIndex:
+				print(str(prevIndex) + " committed")
+				prevIndex += 1
 		else:
 			if data.term > CLIENT_STATE.curr_term:
 				CLIENT_STATE.curr_state = "FOLLOWER"
@@ -259,6 +271,7 @@ class Server(Thread):
 								CLIENT_STATE.logs[CLIENT_STATE.nextIndex[data.pid] - 1].index, \
 								CLIENT_STATE.logs[CLIENT_STATE.nextIndex[data.pid] - 1].term, \
 								entries, CLIENT_STATE.commitIndex)
+				sleep()
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.pid]].send(pickle.dumps(appendEntry))
 
 
@@ -294,7 +307,7 @@ class Timer(Thread):
 				CLIENT_STATE.last_recv_time = time.time()
 				print("Starting Leader Election....")
 				self.start_election()
-				
+				self.timeout = random.randint(25,45)
 
 	def start_election(self):
 		CLIENT_STATE.curr_state = "CANDIDATE"
@@ -360,6 +373,20 @@ class AcceptConnections(Thread):
 			new_client.daemon = True
 			new_client.start()
 
+class PersistLog(Thread):
+	def __init__(self, timeout = 60):
+		Thread.__init__(self)
+		self.timeout = timeout
+		self.curr_time = time.time()
+
+	def run(self):
+		while True:
+			if time.time() - self.curr_time > self.timeout:
+				print("Saving state....")
+				file = open(CLIENT_STATE.filePath, 'wb+')
+				file.write(pickle.dumps(CLIENT_STATE))
+				file.close()
+				self.curr_time = time.time()
 
 class Client:
 	def __init__(self, listen_port, pid, port_mapping, filePath):
@@ -380,6 +407,10 @@ class Client:
 		serverThread = Server()
 		serverThread.daemon = True
 		serverThread.start()
+
+		persistThread = PersistLog()
+		persistThread.daemon = True
+		persistThread.start()
 		
 		self.start_console()
 
@@ -408,6 +439,7 @@ class Client:
 		if CLIENT_STATE.curr_state == "LEADER":
 			MessageQueue.append(appendEntry)
 		else:
+			sleep()
 			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[CLIENT_STATE.curr_leader]].send(pickle.dumps(appendEntry))
 			
 	def encryptPvtKey(self, private_key, public_key):
@@ -433,19 +465,19 @@ class Client:
 
 		global CLIENT_STATE
 
-		with open(self.filePath, 'rb') as file: 
-			if os.stat(self.filePath).st_size != 0:
-				print("loading saved state") 
-				CLIENT_STATE = pickle.loads(file.read())
-				CLIENT_STATE.last_recv_time = time.time()
-				for entry in CLIENT_STATE.logs:
-					print(str(entry))
-				file.close()
+		if os.path.exists(self.filePath):
+			with open(self.filePath, 'rb') as file: 
+				if os.stat(self.filePath).st_size != 0:
+					print("loading saved state") 
+					CLIENT_STATE = pickle.loads(file.read())
+					CLIENT_STATE.last_recv_time = time.time()
+					for entry in CLIENT_STATE.logs:
+						print(str(entry))
+					file.close()
 			
 		while True:
 			user_input = input()
-			#if user_input.startswith("createGroup"):
-			if user_input.startswith("cg"):
+			if user_input.startswith("createGroup") or user_input.startswith("cg"):
 				print("Create Group")
 				req, group_id, client_ids = user_input.split(" ", 2)
 				public_key, private_key = rsa.newkeys(256)
@@ -453,7 +485,7 @@ class Client:
 				for client in client_ids.split(" "):
 					encPvtKeys[int(client)] = self.encryptPvtKey(private_key, CLIENT_STATE.publicKeys[int(client)]) 
 					#rsa.encrypt(private_key.encode(), CLIENT_STATE.publicKeys[client])
-				clientReq = ClientRequest("CLIENT_REQ", "CREATE_GRP", group_id, "", encPvtKeys, public_key)
+				clientReq = ClientRequest("CLIENT_REQ", "CREATE_GRP", CLIENT_STATE.pid, group_id, "", encPvtKeys, public_key)
 				self.broadcast(clientReq)
 
 			elif user_input.startswith("add"):
@@ -464,7 +496,7 @@ class Client:
 				public_key = None
 				encPvtKeys = {}
 				for log in CLIENT_STATE.logs[::-1]:
-					if log.message != None and log.message.group_id == group_id:
+					if log.message != None and log.message.group_id == group_id and log.message.message_type != "WRITE_MESSAGE":
 						if CLIENT_STATE.pid in log.message.encPvtKeys:
 							public_key = log.message.publicKey
 							encPvtKeys = log.message.encPvtKeys
@@ -473,7 +505,7 @@ class Client:
 				if public_key != None:
 					private_key = self.decryptPvtKey(encPvtKeys[CLIENT_STATE.pid], CLIENT_STATE.privateKey)
 					encPvtKeys[int(client_id)] = self.encryptPvtKey(private_key, CLIENT_STATE.publicKeys[int(client_id)])
-					clientReq = ClientRequest("CLIENT_REQ", "ADD_USER", group_id, "", encPvtKeys, public_key)
+					clientReq = ClientRequest("CLIENT_REQ", "ADD_USER", CLIENT_STATE.pid, group_id, "", encPvtKeys, public_key)
 					self.broadcast(clientReq)
 				else:
 					print("You are not part of group " + str(group_id))
@@ -481,7 +513,7 @@ class Client:
 			elif user_input.startswith("kick"):
 				print("Kick")
 				req, group_id, client_id = user_input.split(" ")
-				#traverse log get encPvtKeys
+				
 				new_public_key, new_private_key = rsa.newkeys(256)
 
 				new_encPvtKeys = {}
@@ -489,7 +521,7 @@ class Client:
 				public_key = None
 				encPvtKeys = {}
 				for log in CLIENT_STATE.logs[::-1]:
-					if log.message != None and log.message.group_id == group_id:
+					if log.message != None and log.message.group_id == group_id and log.message.message_type != "WRITE_MESSAGE":
 						if CLIENT_STATE.pid in log.message.encPvtKeys:
 							public_key = log.message.publicKey
 							encPvtKeys = log.message.encPvtKeys
@@ -500,38 +532,55 @@ class Client:
 						if client != int(client_id):
 							new_encPvtKeys[client] = self.encryptPvtKey(new_private_key, CLIENT_STATE.publicKeys[client]) 
 
-					clientReq = ClientRequest("CLIENT_REQ", "KICK_USER", group_id, "", new_encPvtKeys, new_public_key)
+					clientReq = ClientRequest("CLIENT_REQ", "KICK_USER", CLIENT_STATE.pid, group_id, "", new_encPvtKeys, new_public_key)
 					self.broadcast(clientReq)
 				else:
 					print("You are not part of group " + str(group_id))
 	
-			elif user_input.startswith("writeMessage"):
+			elif user_input.startswith("writeMessage") or user_input.startswith("wm"):
 				print("Write Message")
 				req, group_id, message = user_input.split(" ", 2)
 				public_key = None
-				encPvtKeys = {}
+				#encPvtKeys = {}
 				for log in CLIENT_STATE.logs[::-1]:
-					if log.message != None and log.message.group_id == group_id:
+					if log.message != None and log.message.group_id == group_id and log.message.message_type != "WRITE_MESSAGE":
 						public_key = log.message.publicKey
-						encPvtKeys = log.message.encPvtKeys
+						#encPvtKeys = log.message.encPvtKeys
 						break
 				encMessage = rsa.encrypt(message.encode(), public_key)
-				clientReq = ClientRequest("CLIENT_REQ", "WRITE_MESSAGE", group_id, encMessage, encPvtKeys, public_key)
+				clientReq = ClientRequest("CLIENT_REQ", "WRITE_MESSAGE", CLIENT_STATE.pid, group_id, encMessage, None, public_key)
 				self.broadcast(clientReq)
 
-			#elif user_input.startswith("printGroup"):
-			elif user_input.startswith("pg"):
+			elif user_input.startswith("printGroup") or user_input.startswith("pg"):
 				print("Print Group")
 				req, group_id = user_input.split(" ")
+				# for log in CLIENT_STATE.logs:
+				# 	if log.message != None and log.message.group_id == group_id:
+				# 		if CLIENT_STATE.pid in log.message.encPvtKeys:
+				# 			if log.message.message_type != "WRITE_MESSAGE":
+				# 				encPvtKeys = log.message.encPvtKeys
+				# 			else:
+				# 				msg_private_key = self.decryptPvtKey(encPvtKeys[CLIENT_STATE.pid], CLIENT_STATE.privateKey)
+				# 				msg = rsa.decrypt(log.message.encMessage, msg_private_key).decode()
+				# 				print(msg)
+				encPvtKeys = {}
 				for log in CLIENT_STATE.logs:
-					if log.message != None and log.message.group_id == group_id and log.message.message_type == "WRITE_MESSAGE":
-						if CLIENT_STATE.pid in log.message.encPvtKeys:
-							public_key = log.message.publicKey
-							encPvtKeys = log.message.encPvtKeys
-							msg_private_key = self.decryptPvtKey(encPvtKeys[CLIENT_STATE.pid], CLIENT_STATE.privateKey)
-							msg = rsa.decrypt(log.message.encMessage, msg_private_key).decode()
-							print(msg)
-				
+					# for i in encPvtKeys:
+					# 	print(str(i))
+					if log.message != None and log.message.group_id == group_id:
+						if log.message.message_type != "WRITE_MESSAGE":
+							new_keys = log.message.encPvtKeys
+							if CLIENT_STATE.pid in new_keys:
+								encPvtKeys = new_keys
+						elif log.message.message_type == "WRITE_MESSAGE" and CLIENT_STATE.pid in encPvtKeys \
+									and log.message.sender in encPvtKeys:
+							try:
+								msg_private_key = self.decryptPvtKey(encPvtKeys[CLIENT_STATE.pid], CLIENT_STATE.privateKey)
+								msg = rsa.decrypt(log.message.encMessage, msg_private_key).decode()
+								print(msg)
+							except:
+								print("Decrytion failure")
+							#handle decryption failure
 			elif user_input.startswith("failLink"):
 				print("Fail Link")
 				req, src, dest = user_input.split(" ")
@@ -567,33 +616,22 @@ class Client:
 				else:
 					C2C_CONNECTIONS[CLIENT_STATE.port_mapping[src]].send(pickle.dumps(networkLinkDest))
 					C2C_CONNECTIONS[CLIENT_STATE.port_mapping[dest]].send(pickle.dumps(networkLinkSrc))
-			elif user_input.startswith("failProcess"):
-				sys.exit()	
-			elif user_input == "Q":
-				# for key in C2C_CONNECTIONS:
-				# 	print(str(key))
-				# 	C2C_CONNECTIONS[key].close()
+			elif user_input.startswith("failProcess") or user_input == "Q":
 				sys.exit()
 			elif user_input == "C":
 				for key in C2C_CONNECTIONS:
 					print(str(key))
+			elif user_input == "L":
+				for entry in CLIENT_STATE.logs:
+				 	print(str(entry))	
 			elif user_input == "SV":
-				file = open(self.filePath, 'wb')
+				file = open(self.filePath, 'wb+')
 				file.write(pickle.dumps(CLIENT_STATE))
-				file.close()
-			elif user_input == "ENC":
-				message = "arjun encrypted"
-				encMessage = rsa.encrypt(message.encode(), CLIENT_STATE.publicKeys[self.pid])
-				
-				print("original string: ", message)
-				print("encrypted string: ", encMessage)
-				
-				decMessage = rsa.decrypt(encMessage, CLIENT_STATE.privateKey).decode()
-				
-				print("decrypted string: ", decMessage)				
+				file.close()			
 			else:
-				client_msg = ClientMessage("CLIENT_REQ", user_input)
-				MessageQueue.append(client_msg)
+				print("Enter valid input")
+				# client_msg = ClientMessage("CLIENT_REQ", user_input)
+				# MessageQueue.append(client_msg)
 
 
 
@@ -637,7 +675,7 @@ if __name__ == "__main__":
 	os.makedirs(os.path.dirname(filePath), exist_ok=True)
 
 
-	CLIENT_STATE = ClientState(pid, port_mapping)
+	CLIENT_STATE = ClientState(pid, port_mapping, filePath)
 	timer.daemon = True
 	timer.start()
 

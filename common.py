@@ -41,9 +41,10 @@ class ResponseAppendEntry:
 		self.success = success
 
 class ClientState:
-	def __init__(self, pid, port_mapping):
+	def __init__(self, pid, port_mapping, filePath):
 		self.pid = pid
 		self.port_mapping = port_mapping
+		self.filePath = filePath
 		self.curr_leader = 0
 		self.curr_term = 0
 		self.curr_state = "FOLLOWER"
@@ -65,15 +66,18 @@ class ClientMessage:
 		self.message = message
 
 class ClientRequest:
-	def __init__(self, req_type, message_type, group_id, encMessage, encPvtKeys, publicKey):
+	def __init__(self, req_type, message_type, sender, group_id, encMessage, encPvtKeys, publicKey):
 		self.req_type = req_type
 		self.message_type = message_type
+		self.sender = sender
 		self.group_id = group_id
 		self.encMessage = encMessage
 		self.encPvtKeys = encPvtKeys
 		self.publicKey = publicKey
 
 	def __str__(self):
+		if self.message_type == "WRITE_MESSAGE":
+			return self.message_type + "|" + str(self.group_id) + "| Encrypted Message" 
 		return self.message_type + "|" + str(self.group_id) + "|" + str(len(self.encPvtKeys))
 
 class NetworkLink:
