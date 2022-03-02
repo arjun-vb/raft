@@ -65,16 +65,16 @@ class ClientMessage:
 		self.message = message
 
 class ClientRequest:
-	def __init__(self, req_type, message_type, group_id, encMessage, encPvtKey, publicKey):
+	def __init__(self, req_type, message_type, group_id, encMessage, encPvtKeys, publicKey):
 		self.req_type = req_type
 		self.message_type = message_type
 		self.group_id = group_id
 		self.encMessage = encMessage
-		self.encPvtKey = encPvtKey
+		self.encPvtKeys = encPvtKeys
 		self.publicKey = publicKey
 
 	def __str__(self):
-		return self.message_type + "|" + str(self.group_id) + "|" + str(len(self.encPvtKey))
+		return self.message_type + "|" + str(self.group_id) + "|" + str(len(self.encPvtKeys))
 
 class NetworkLink:
 	def __init__(self, req_type, src, dest):

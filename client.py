@@ -464,7 +464,7 @@ class Client:
 				public_key = None
 				encPvtKeys = {}
 				for log in CLIENT_STATE.logs[::-1]:
-					if log.message.group_id == group_id:
+					if log.message != None and log.message.group_id == group_id:
 						if CLIENT_STATE.pid in log.message.encPvtKeys:
 							public_key = log.message.publicKey
 							encPvtKeys = log.message.encPvtKeys
@@ -489,7 +489,7 @@ class Client:
 				public_key = None
 				encPvtKeys = {}
 				for log in CLIENT_STATE.logs[::-1]:
-					if log.message.group_id == group_id:
+					if log.message != None and log.message.group_id == group_id:
 						if CLIENT_STATE.pid in log.message.encPvtKeys:
 							public_key = log.message.publicKey
 							encPvtKeys = log.message.encPvtKeys
@@ -511,7 +511,7 @@ class Client:
 				public_key = None
 				encPvtKeys = {}
 				for log in CLIENT_STATE.logs[::-1]:
-					if log.message.group_id == group_id:
+					if log.message != None and log.message.group_id == group_id:
 						public_key = log.message.publicKey
 						encPvtKeys = log.message.encPvtKeys
 						break
@@ -524,7 +524,7 @@ class Client:
 				print("Print Group")
 				req, group_id = user_input.split(" ")
 				for log in CLIENT_STATE.logs:
-					if log.message.group_id == group_id and log.message.message_type == "WRITE_MESSAGE":
+					if log.message != None and log.message.group_id == group_id and log.message.message_type == "WRITE_MESSAGE":
 						if CLIENT_STATE.pid in log.message.encPvtKeys:
 							public_key = log.message.publicKey
 							encPvtKeys = log.message.encPvtKeys
