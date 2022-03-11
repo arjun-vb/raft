@@ -404,6 +404,20 @@ class Client:
 
 	def start_client(self):
 		
+		global CLIENT_STATE
+
+		if os.path.exists(self.filePath):
+			with open(self.filePath, 'rb') as file: 
+				if os.stat(self.filePath).st_size != 0:
+					print("LOADING SAVED STATE") 
+					CLIENT_STATE = pickle.loads(file.read())
+					CLIENT_STATE.last_recv_time = time.time()
+					CLIENT_STATE.activeLink = {1: False, 2: False, 3: False, 4: False, 5: False}
+					CLIENT_STATE.voteCounts = {}
+					for entry in CLIENT_STATE.logs:
+						print(str(entry))
+					file.close()		
+		
 		acceptConn = AcceptConnections(self.ip, self.listen_port)
 		acceptConn.daemon = True
 		acceptConn.start()
@@ -417,6 +431,10 @@ class Client:
 		persistThread = PersistLog()
 		persistThread.daemon = True
 		persistThread.start()
+
+		if CLIENT_STATE.curr_state == "LEADER":
+			heartBeatThread = HeartBeat()
+			heartBeatThread.start()
 		
 		self.start_console()
 
@@ -470,21 +488,6 @@ class Client:
 	def start_console(self):
 
 		global CLIENT_STATE
-
-		if os.path.exists(self.filePath):
-			with open(self.filePath, 'rb') as file: 
-				if os.stat(self.filePath).st_size != 0:
-					print("LOADING SAVED STATE") 
-					CLIENT_STATE = pickle.loads(file.read())
-					CLIENT_STATE.last_recv_time = time.time()
-					CLIENT_STATE.activeLink = {1: False, 2: False, 3: False, 4: False, 5: False}
-					CLIENT_STATE.voteCounts = {}
-					for entry in CLIENT_STATE.logs:
-						print(str(entry))
-					file.close()
-		if CLIENT_STATE.curr_state == "LEADER":
-			heartBeatThread = HeartBeat()
-			heartBeatThread.start()
 
 		while True:
 			user_input = input()
