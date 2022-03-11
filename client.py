@@ -265,6 +265,7 @@ class Server(Thread):
 				prevIndex += 1
 		else:
 			if data.term > CLIENT_STATE.curr_term:
+				CLIENT_STATE.last_recv_time = time.time()
 				CLIENT_STATE.curr_state = "FOLLOWER"
 				CLIENT_STATE.curr_term = data.term
 				CLIENT_STATE.votedFor = 0
@@ -403,7 +404,7 @@ class Client:
 		self.filePath = filePath
 
 	def start_client(self):
-		
+
 		global CLIENT_STATE
 
 		if os.path.exists(self.filePath):
