@@ -36,35 +36,35 @@ class Server(Thread):
 
 				elif CLIENT_STATE.curr_state == "LEADER":
 					if data.req_type == "REQ_VOTE":
-						print("Request vote leader")
+						print("LEADER: Recieved request vote from " + str(data.candidateId))
 						self.handleReqVote_Leader(data)
 					elif data.req_type == "APPEND_ENTRY":
-						self.handleAppendEntry_Leader(data)
-						print("append entry leader")
+						print("LEADER: Recieved Append entry from " + str(data.leaderId))
+						self.handleAppendEntry_Leader(data)						
 					elif data.req_type == "RESP_APPEND_ENTRY":
-						print("resp append entry leader")
+						#print("LEADER: Recieved response for append entry")
 						self.handleRespAppendEntry_Leader(data)
 					elif data.req_type == "CLIENT_REQ":
-						print("Client req leader")
+						print("LEADER: Recieved new client request")
 						self.handleClientReq_Leader(data)
 
 				elif CLIENT_STATE.curr_state == "FOLLOWER":
 					if data.req_type == "REQ_VOTE":
-						print("req vote follower")
+						print("FOLLOWER: Recieved request vote from " + str(data.candidateId))
 						self.handleReqVote_Follower(data)
 					elif data.req_type == "APPEND_ENTRY":
-						print("append entry follower")
+						print("FOLLOWER: Recieved Append entry from " + str(data.leaderId))
 						self.handleAppendEntry_Follower(data)
 
 				elif CLIENT_STATE.curr_state == "CANDIDATE":
 					if data.req_type == "REQ_VOTE":
-						print("req vote candidate")
+						print("CANDIDATE: Recieved request vote from " + str(data.candidateId))
 						self.handleReqVote_Follower(data)
 					elif data.req_type == "RESP_VOTE":
-						print("resp vote candidate")
+						print("CANDIDATE: Recieved response for vote request")
 						self.handleRespVote_Candidate(data)
 					elif data.req_type == "APPEND_ENTRY":
-						print("append entry candidate")
+						print("CANDIDATE: Recieved Append entry from " + str(data.leaderId))
 						self.handleAppendEntry_Follower(data)
 	
 	def handleClientReq_Leader(self, data):
@@ -102,7 +102,7 @@ class Server(Thread):
 			CLIENT_STATE.last_recv_time = time.time()
 
 			accept = pickle.dumps(ResponseVote("RESP_VOTE", CLIENT_STATE.curr_term, True))
-			print("Accepted leader " + str(data.candidateId) + " for term " + str(data.term))
+			print("FOLLOWER: Accepted leader " + str(data.candidateId) + " for term " + str(data.term))
 			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(accept)
 
 
@@ -133,7 +133,7 @@ class Server(Thread):
 			CLIENT_STATE.votedFor = data.candidateId
 			CLIENT_STATE.last_recv_time = time.time()
 			accept = pickle.dumps(ResponseVote("RESP_VOTE", CLIENT_STATE.curr_term, True))
-			print("Accepted leader " + str(data.candidateId) + " for term " + str(data.term))
+			print("FOLLOWER: Accepted leader " + str(data.candidateId) + " for term " + str(data.term))
 			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(accept)
 		else:
 			deny = pickle.dumps(ResponseVote("RESP_VOTE", CLIENT_STATE.curr_term, False))
@@ -181,7 +181,11 @@ class Server(Thread):
 			if data.term > CLIENT_STATE.curr_term:
 				CLIENT_STATE.curr_term = data.term
 				CLIENT_STATE.votedFor = 0
-			if data.prevLogIndex < len(CLIENT_STATE.logs) and CLIENT_STATE.logs[data.prevLogIndex].term == data.prevLogTerm:
+			if data.prevLogIndex < len(CLIENT_STATE.logs) and \
+				CLIENT_STATE.logs[data.prevLogIndex].term == data.prevLogTerm:
+				#CLIENT_STATE.logs[data.prevLogIndex].index == data.prevLogIndex:
+				#if data.prevLogIndex < len(CLIENT_STATE.logs) - 1:
+				#	CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.prevLogIndex+1]
 				if len(data.entries) > 0:
 					for entry in data.entries:
 						#CLIENT_STATE.logs[entry.index] = entry
@@ -257,7 +261,7 @@ class Server(Thread):
 				index += 1
 
 			while prevIndex <= CLIENT_STATE.commitIndex:
-				print(str(prevIndex) + " committed")
+				print(str(prevIndex) + " COMMITTED")
 				prevIndex += 1
 		else:
 			if data.term > CLIENT_STATE.curr_term:
@@ -290,9 +294,10 @@ class HeartBeat(Thread):
 				appendEntry.prevLogIndex = CLIENT_STATE.logs[-1].index
 				appendEntry.prevLogTerm = CLIENT_STATE.logs[-1].term
 				appendEntry.commitIndex = CLIENT_STATE.commitIndex
+				print("SENDING HEARTBEAT...")
 				for client in CLIENT_STATE.port_mapping:
 					if CLIENT_STATE.activeLink[client] == True:
-						print("HeartBeat for " + str(CLIENT_STATE.pid) + "|" + str(CLIENT_STATE.curr_term) + " sent to " + str(client))
+						#print("HeartBeat for " + str(CLIENT_STATE.pid) + "|" + str(CLIENT_STATE.curr_term) + " sent to " + str(client))
 						C2C_CONNECTIONS[CLIENT_STATE.port_mapping[client]].send(pickle.dumps(appendEntry))
 
 
@@ -307,7 +312,8 @@ class Timer(Thread):
 				CLIENT_STATE.last_recv_time = time.time()
 				print("Starting Leader Election....")
 				self.start_election()
-				self.timeout = random.randint(25,45)
+				self.timeout = random.randint(25,50)
+				print("NEW TIMEOUT = " + str(self.timeout))
 
 	def start_election(self):
 		CLIENT_STATE.curr_state = "CANDIDATE"
@@ -336,7 +342,7 @@ class ClientConnections(Thread):
 			try:		
 				response = self.connection.recv(BUFF_SIZE)
 				data = pickle.loads(response)
-				print("Recieved from " + str(self.client_id))
+				#print("Recieved from " + str(self.client_id))
 				MessageQueue.append(data)
 			except:
 				print("Error: Closing connection with " + str(self.client_id))
@@ -374,7 +380,7 @@ class AcceptConnections(Thread):
 			new_client.start()
 
 class PersistLog(Thread):
-	def __init__(self, timeout = 60):
+	def __init__(self, timeout = 120):
 		Thread.__init__(self)
 		self.timeout = timeout
 		self.curr_time = time.time()
@@ -382,7 +388,7 @@ class PersistLog(Thread):
 	def run(self):
 		while True:
 			if time.time() - self.curr_time > self.timeout:
-				print("Saving state....")
+				print("SAVING STATE....")
 				file = open(CLIENT_STATE.filePath, 'wb+')
 				file.write(pickle.dumps(CLIENT_STATE))
 				file.close()
@@ -478,8 +484,8 @@ class Client:
 		while True:
 			user_input = input()
 			if user_input.startswith("createGroup") or user_input.startswith("cg"):
-				print("Create Group")
 				req, group_id, client_ids = user_input.split(" ", 2)
+				print("CREATE GROUP " + group_id)
 				public_key, private_key = rsa.newkeys(256)
 				encPvtKeys = {}
 				for client in client_ids.split(" "):
@@ -489,8 +495,8 @@ class Client:
 				self.broadcast(clientReq)
 
 			elif user_input.startswith("add"):
-				print("Add")
 				req, group_id, client_id = user_input.split(" ")
+				print("ADDED " + client_id + " TO GROUP " + group_id)
 				#traverse log get private key. public key and encPvtKeys
 				private_key = None
 				public_key = None
@@ -511,9 +517,9 @@ class Client:
 					print("You are not part of group " + str(group_id))
 
 			elif user_input.startswith("kick"):
-				print("Kick")
-				req, group_id, client_id = user_input.split(" ")
 				
+				req, group_id, client_id = user_input.split(" ")
+				print("KICKED " + client_id + " FROM GROUP " + group_id)
 				new_public_key, new_private_key = rsa.newkeys(256)
 
 				new_encPvtKeys = {}
@@ -538,8 +544,8 @@ class Client:
 					print("You are not part of group " + str(group_id))
 	
 			elif user_input.startswith("writeMessage") or user_input.startswith("wm"):
-				print("Write Message")
 				req, group_id, message = user_input.split(" ", 2)
+				print("WRITE MESSAGE FROM " + str(CLIENT_STATE.pid) + " TO GROUP " + group_id)
 				public_key = None
 				#encPvtKeys = {}
 				for log in CLIENT_STATE.logs[::-1]:
@@ -552,8 +558,9 @@ class Client:
 				self.broadcast(clientReq)
 
 			elif user_input.startswith("printGroup") or user_input.startswith("pg"):
-				print("Print Group")
+				
 				req, group_id = user_input.split(" ")
+				print("PRINTING MESSAGE FROM GROUP " + group_id)
 				# for log in CLIENT_STATE.logs:
 				# 	if log.message != None and log.message.group_id == group_id:
 				# 		if CLIENT_STATE.pid in log.message.encPvtKeys:
@@ -581,9 +588,10 @@ class Client:
 							except:
 								print("Decrytion failure")
 							#handle decryption failure
-			elif user_input.startswith("failLink"):
-				print("Fail Link")
+			elif user_input.startswith("failLink") or user_input.startswith("fail"):
+				
 				req, src, dest = user_input.split(" ")
+				print("FAIL LINK BETWEEN " + src + " AND " + dest)
 				src = int(src)
 				dest = int(dest)
 				# print(str(src))
@@ -600,9 +608,10 @@ class Client:
 					C2C_CONNECTIONS[CLIENT_STATE.port_mapping[src]].send(pickle.dumps(networkLinkDest))
 					C2C_CONNECTIONS[CLIENT_STATE.port_mapping[dest]].send(pickle.dumps(networkLinkSrc))
 
-			elif user_input.startswith("fixLink"):
-				print("Fix Link")
+			elif user_input.startswith("fixLink") or user_input.startswith("fix"):
+				
 				req, src, dest = user_input.split(" ")
+				print("FIX LINK BETWEEN " + src + " AND " + dest)
 				src = int(src)
 				dest = int(dest)
 				networkLinkDest = NetworkLink("FIX_LINK", src, dest)
