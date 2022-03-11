@@ -184,15 +184,15 @@ class Server(Thread):
 			if data.prevLogIndex < len(CLIENT_STATE.logs) and \
 				CLIENT_STATE.logs[data.prevLogIndex].term == data.prevLogTerm:
 				#CLIENT_STATE.logs[data.prevLogIndex].index == data.prevLogIndex:
-				#if data.prevLogIndex < len(CLIENT_STATE.logs) - 1:
-				#	CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.prevLogIndex+1]
+				if data.prevLogIndex < len(CLIENT_STATE.logs) - 1:
+					CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.prevLogIndex+1]
 				if len(data.entries) > 0:
 					for entry in data.entries:
 						#CLIENT_STATE.logs[entry.index] = entry
 						CLIENT_STATE.logs.append(entry)
 					CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.entries[-1].index+1]
-				elif data.prevLogIndex < len(CLIENT_STATE.logs) - 1:
-					CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.prevLogIndex+1]
+				#elif data.prevLogIndex < len(CLIENT_STATE.logs) - 1:
+				#	CLIENT_STATE.logs = CLIENT_STATE.logs[0:data.prevLogIndex+1]
 				# for entry in CLIENT_STATE.logs:
 				# 	print(str(entry))
 				CLIENT_STATE.commitIndex = data.commitIndex
@@ -474,13 +474,18 @@ class Client:
 		if os.path.exists(self.filePath):
 			with open(self.filePath, 'rb') as file: 
 				if os.stat(self.filePath).st_size != 0:
-					print("loading saved state") 
+					print("LOADING SAVED STATE") 
 					CLIENT_STATE = pickle.loads(file.read())
 					CLIENT_STATE.last_recv_time = time.time()
+					CLIENT_STATE.activeLink = {1: False, 2: False, 3: False, 4: False, 5: False}
+					CLIENT_STATE.voteCounts = {}
 					for entry in CLIENT_STATE.logs:
 						print(str(entry))
 					file.close()
-			
+		if CLIENT_STATE.curr_state == "LEADER":
+			heartBeatThread = HeartBeat()
+			heartBeatThread.start()
+
 		while True:
 			user_input = input()
 			if user_input.startswith("createGroup") or user_input.startswith("cg"):
