@@ -96,10 +96,11 @@ class Server(Thread):
 			print("Rejected leader " + str(data.candidateId) + " for term " + str(data.term))
 			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(deny)
 		else:
+
+			CLIENT_STATE.last_recv_time = time.time()
 			CLIENT_STATE.curr_state = "FOLLOWER"
 			CLIENT_STATE.curr_term = data.term
 			CLIENT_STATE.votedFor = data.candidateId
-			CLIENT_STATE.last_recv_time = time.time()
 
 			accept = pickle.dumps(ResponseVote("RESP_VOTE", CLIENT_STATE.curr_term, True))
 			print("FOLLOWER: Accepted leader " + str(data.candidateId) + " for term " + str(data.term))
@@ -109,7 +110,10 @@ class Server(Thread):
 	def handleReqVote_Follower(self, data):
 		
 		vote = False
-
+		# print("my last term :" + str(CLIENT_STATE.logs[-1].term))
+		# print("candidate term" + str(data.lastLogTerm))
+		# print("my last index" + str(CLIENT_STATE.logs[-1].index))
+		# print("candidate index" + str(data.lastLogIndex))
 		if data.term < CLIENT_STATE.curr_term:
 			vote = False
 
@@ -118,6 +122,7 @@ class Server(Thread):
 				CLIENT_STATE.curr_term = data.term
 				CLIENT_STATE.votedFor = 0
 			if CLIENT_STATE.votedFor == 0 or CLIENT_STATE.votedFor == data.candidateId: 
+				
 				if CLIENT_STATE.logs[-1].term < data.lastLogTerm:
 					vote = True
 				elif CLIENT_STATE.logs[-1].term == data.lastLogTerm and CLIENT_STATE.logs[-1].index <= data.lastLogIndex:
@@ -128,10 +133,10 @@ class Server(Thread):
 				vote = False
 
 		if vote == True:
+			CLIENT_STATE.last_recv_time = time.time()
 			CLIENT_STATE.curr_state = "FOLLOWER"
 			CLIENT_STATE.curr_term = data.term
 			CLIENT_STATE.votedFor = data.candidateId
-			CLIENT_STATE.last_recv_time = time.time()
 			accept = pickle.dumps(ResponseVote("RESP_VOTE", CLIENT_STATE.curr_term, True))
 			print("FOLLOWER: Accepted leader " + str(data.candidateId) + " for term " + str(data.term))
 			C2C_CONNECTIONS[CLIENT_STATE.port_mapping[data.candidateId]].send(accept)
@@ -143,10 +148,10 @@ class Server(Thread):
 
 	def handleRespVote_Candidate(self, data):
 		if data.term > CLIENT_STATE.curr_term:
+			CLIENT_STATE.last_recv_time = time.time()
 			CLIENT_STATE.curr_state = "FOLLOWER"
 			CLIENT_STATE.curr_term = data.term
 			CLIENT_STATE.votedFor = 0 
-			CLIENT_STATE.last_recv_time = time.time()
 		else:
 			if data.voteGranted == True:
 				key = str(CLIENT_STATE.pid) + "|" + str(data.term)
@@ -326,8 +331,8 @@ class Timer(Thread):
 		for client in CLIENT_STATE.port_mapping:
 			if CLIENT_STATE.activeLink[client] == True:
 				request_vote = RequestVote( "REQ_VOTE", CLIENT_STATE.pid, CLIENT_STATE.curr_term, \
-					CLIENT_STATE.logs[CLIENT_STATE.nextIndex[client] - 1].index, \
-					CLIENT_STATE.logs[CLIENT_STATE.nextIndex[client] - 1].term)
+					CLIENT_STATE.logs[-1].index, \
+					CLIENT_STATE.logs[-1].term)
 				print("Request Vote for " + str(CLIENT_STATE.pid) + "|" + str(CLIENT_STATE.curr_term) + " sent to " + str(client))
 				C2C_CONNECTIONS[CLIENT_STATE.port_mapping[client]].send(pickle.dumps(request_vote))
 
@@ -346,7 +351,7 @@ class ClientConnections(Thread):
 				#print("Recieved from " + str(self.client_id))
 				MessageQueue.append(data)
 			except:
-				print("Error: Closing connection with " + str(self.client_id))
+				#print("Error: Closing connection with " + str(self.client_id))
 				CLIENT_STATE.activeLink[self.client_id] = False
 				self.connection.close()
 				break
